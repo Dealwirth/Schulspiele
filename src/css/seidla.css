@@ -290,6 +290,64 @@ select{cursor:pointer}
 .row-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
 .row-actions input{flex:1;min-width:160px}
 
+/* ── QR-Code und Beitritt ──────────────────────────────────────────────── */
+.code-wrap{
+  display:flex;gap:18px;align-items:center;justify-content:center;
+  flex-wrap:wrap;margin-top:12px;
+}
+.qr-panel{
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  background:linear-gradient(180deg,var(--cream),var(--cream-2));
+  border-radius:var(--radius);padding:12px;box-shadow:var(--shadow);
+  border:1px solid rgba(90,60,20,.35);max-width:260px;
+}
+.qr-box{line-height:0}
+.qr-box svg{display:block;width:100%;height:auto;max-width:220px;border-radius:6px}
+.qr-panel .muted{color:var(--ink-soft);text-align:center;margin:0}
+.qr-fallback{padding:20px;text-align:center}
+
+/* ── Modi ──────────────────────────────────────────────────────────────── */
+.mode-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.mode-chip{
+  display:flex;flex-direction:column;gap:4px;padding:11px 13px;border-radius:11px;
+  border:1px solid rgba(201,139,60,.25);background:rgba(0,0,0,.22);color:#cbb896;
+  font:inherit;cursor:pointer;text-align:left;
+}
+.mode-chip.on{border-color:var(--gold);background:rgba(217,165,33,.16);color:var(--cream)}
+.mode-chip .mode-glyph{font-size:20px}
+.mode-chip .mode-name{font-family:var(--font-serif);font-size:16px;font-weight:700}
+.mode-chip .mode-hint{font-size:11.5px;line-height:1.35;color:#a08a68}
+.mode-chip.on .mode-hint{color:#d3c0a0}
+.mode-chip.mode-vollsuff.on{border-color:rgba(156,43,35,.85);background:rgba(156,43,35,.2)}
+.mode-chip.mode-hardcore.on{border-color:rgba(201,139,60,.9)}
+.mode-warn{
+  margin-top:10px;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.45;
+  background:rgba(156,43,35,.16);border:1px solid rgba(156,43,35,.6);color:#f0cfc9;
+}
+
+/* ── Chat ──────────────────────────────────────────────────────────────── */
+.chat-log{
+  display:flex;flex-direction:column;gap:6px;max-height:52vh;overflow-y:auto;
+  padding:10px;border-radius:10px;background:rgba(0,0,0,.28);
+  border:1px solid rgba(201,139,60,.16);margin-bottom:10px;
+}
+.chat-line{
+  display:flex;align-items:baseline;gap:8px;padding:5px 8px;border-radius:8px;
+  background:rgba(255,255,255,.03);
+}
+.chat-line.own{background:rgba(217,165,33,.1)}
+.chat-who{font-weight:600;font-size:13px;color:var(--copper);white-space:nowrap}
+.chat-text{flex:1;font-size:14px;word-break:break-word}
+.chat-at{font-size:11px;color:#8a7458;white-space:nowrap}
+.chat-panel .row-actions input{flex:1;min-width:140px}
+
+/* ── Wertung ───────────────────────────────────────────────────────────── */
+.review-card .host-acts{border-top:1px dashed rgba(90,60,20,.35);padding-top:8px;margin-top:4px}
+.task.voided{opacity:.62;border-color:rgba(156,43,35,.7);background:linear-gradient(180deg,#efe2df,#e3d3d0)}
+.task.voided .task-text{text-decoration:line-through}
+.pill.bad{background:rgba(156,43,35,.2);border-color:rgba(156,43,35,.6);color:#f3c9c4}
+.pill.warn{background:rgba(217,165,33,.18);border-color:rgba(217,165,33,.55);color:#f2dc9e}
+
 /* ── Schmale Geräte ────────────────────────────────────────────────────── */
 @media (max-width:600px){
   .wrap{padding:16px 12px 50px}
@@ -303,6 +361,11 @@ select{cursor:pointer}
   .modal{padding:16px}
   .wirt{min-width:0}
   .album-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
+  .code-wrap{gap:12px}
+  .qr-panel{max-width:100%}
+  .qr-box svg{max-width:170px}
+  .mode-grid{grid-template-columns:1fr}
+  .chat-log{max-height:46vh}
 }
 @media (max-width:360px){
   .top-left{width:100%}

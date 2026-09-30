@@ -1,8 +1,10 @@
 /* ==========================================================================
    Seidla — Kern
    Namensraum, Hilfsfunktionen, Zustand, Abendlogik.
-   Kein Minispielkram: Der Abend besteht aus Aufgaben, die jeder mit einem
-   Foto nachweist, und aus Sidequests, die die Runde selbst vorschlägt.
+
+   Der Abend besteht aus Aufgaben, die jeder mit einem Foto nachweist, und
+   aus Sidequests, die die Runde selbst vorschlägt. Am Ende bewertet die
+   Runde die Nachweise; schlechte Ergebnisse können ungültig gemacht werden.
    ========================================================================== */
 window.SS = (function () {
   "use strict";
@@ -55,7 +57,7 @@ window.SS = (function () {
     }
     return a;
   }
-  // deterministischer Zufall aus Text (fuer gemeinsames Austeilen im Netzwerk)
+  // deterministischer Zufall aus Text (für gemeinsames Austeilen im Netzwerk)
   function seededRng(seedStr) {
     let h = 1779033703 ^ String(seedStr).length;
     for (let i = 0; i < String(seedStr).length; i++) {
@@ -84,19 +86,6 @@ window.SS = (function () {
   const colorFor = (idx) => PALETTE[idx % PALETTE.length];
   const initial = (name) => (String(name || "?").trim()[0] || "?").toUpperCase();
 
-  /* ── Speicher ─────────────────────────────────────────────────────────── */
-  const LS = {
-    get(key, fallback) {
-      try {
-        const v = localStorage.getItem("seidla:" + key);
-        return v === null ? fallback : JSON.parse(v);
-      } catch (e) { return fallback; }
-    },
-    set(key, val) {
-      try { localStorage.setItem("seidla:" + key, JSON.stringify(val)); } catch (e) {}
-    },
-  };
-
   /* ── Hinweise (Toast) & Dialog ────────────────────────────────────────── */
   function toast(msg, kind) {
     const root = $("#toastRoot");
@@ -121,7 +110,7 @@ window.SS = (function () {
     (actions || [{ label: "Zumachen" }]).forEach((a) => {
       act.appendChild(
         el("button", {
-          class: "btn " + (a.kind === "primary" ? "btn-gold" : "btn-outline"),
+          class: "btn " + (a.kind === "primary" ? "btn-gold" : a.kind === "danger" ? "btn-danger" : "btn-outline"),
           text: a.label,
           onclick: () => { if (!a.onClick || a.onClick() !== false) closeModal(); },
         })
@@ -147,11 +136,12 @@ window.SS = (function () {
   const setRenderCurrent = (fn) => { renderFn = fn; };
   const renderCurrent = () => renderFn();
 
-  /* ── Netzwerkschicht (wird von net.js befuellt) ───────────────────────── */
+  /* ── Netzwerkschicht (wird von net.js befüllt) ────────────────────────── */
   const net = {
     init: () => Promise.resolve(false),
     sendToHost: () => false,
     broadcastState: () => false,
+    broadcast: () => false,
     createGroup: () => Promise.reject(new Error("Netzwerk nicht geladen")),
     joinGroup: () => Promise.reject(new Error("Netzwerk nicht geladen")),
     leave: () => {},
@@ -167,26 +157,30 @@ window.SS = (function () {
     role: "solo",             // 'host' | 'guest' | 'solo'
     code: null,
     connection: "offline",    // 'offline' | 'connecting' | 'online' | 'lost'
-    pending: false,           // es liegt was im Ausgangskorb
+    pending: false,
     // Teilnehmer
-    players: [],              // [{id,name,color,connected,isHost,index}]
+    players: [],
     hostId: null,
-    me: null,                 // eigene pid (online) / null (lokal)
+    me: null,
     // Abend
-    phase: "lobby",           // 'lobby' | 'running' | 'over'
+    phase: "lobby",           // 'lobby' | 'running' | 'review' | 'over'
     groupName: "Wirtshausrunde",
-    seed: null,               // Zufallskeim des Abends
-    ring: [],                 // Reihenfolge der Vernetzung
-    assignments: {},          // pid -> [Aufgabe]
-    sidequests: [],           // freigegebene Sidequests (freiwillig)
-    proposals: [],            // Vorschläge aus der Runde, warten auf den Wirt
+    seed: null,
+    ring: [],
+    assignments: {},
+    sidequests: [],
+    proposals: [],
     settings: {
       perPlayer: 7,
-      maxLevel: 2,
-      types: null,            // null = alle Typen
+      modeId: "entspannt",
+      maxLevel: 1,
+      types: null,            // null = alle Kategorien des Modus
       sidequests: true,
-      confirmMode: "host",    // 'host' | 'self'
+      chat: true,
+      review: true,           // Gesamtwertung am Ende
+      hostOverride: true,     // Wirt darf Wertung unterbinden
     },
+    reviews: {},              // aid -> { ok:[pid], bad:[pid] }
     log: [],
   };
 
@@ -234,15 +228,8 @@ window.SS = (function () {
 
   /* ══ Der Abend ══════════════════════════════════════════════════════════ */
 
-  /** Alle Aufgaben einer Person. */
   const tasksOf = (pid) => state.assignments[pid] || [];
-  const myTasks = () => tasksOf(state.mode === "online" ? state.me : (state.players[0] && state.players[0].id));
-
-  function findTask(pid, aid) {
-    const list = tasksOf(pid);
-    return list.find((t) => t.aid === aid) || null;
-  }
-  /** Aufgabe irgendwo im Abend finden (der Wirt sieht alle). */
+  function findTask(pid, aid) { return tasksOf(pid).find((t) => t.aid === aid) || null; }
   function findTaskAnywhere(aid) {
     for (const pid in state.assignments) {
       const t = tasksOf(pid).find((x) => x.aid === aid);
@@ -251,34 +238,40 @@ window.SS = (function () {
     return null;
   }
 
-  /** Punkte einer Person: bestätigte Aufgaben plus geschaffte Sidequests. */
+  /**
+   * Ist diese Aufgabe ungültig? Das passiert, wenn die Runde sie am Ende
+   * mehrheitlich ablehnt und der Wirt die Übersteuerung nicht nutzt.
+   */
+  const isVoid = (t) => !!t.voided;
+
+  /** Punkte einer Person: gültige Aufgaben plus geschaffte Sidequests. */
   function pointsOf(pid) {
-    let n = tasksOf(pid).reduce((sum, t) => sum + (t.confirmed ? t.points : 0), 0);
+    let n = tasksOf(pid).reduce((sum, t) => sum + (t.confirmed && !isVoid(t) ? t.points : 0), 0);
     (state.sidequests || []).forEach((q) => {
-      if (q.done && q.done[pid]) n += (q.done[pid].points || 2);
+      if (q.done && q.done[pid] && !q.done[pid].voided) n += (q.done[pid].points || 2);
     });
     return n;
   }
-  /** Wie viele Sidequests hat jemand geschafft? */
   function sidequestsDone(pid) {
-    return (state.sidequests || []).filter((q) => q.done && q.done[pid]).length;
+    return (state.sidequests || []).filter((q) => q.done && q.done[pid] && !q.done[pid].voided).length;
   }
   function doneCount(pid) {
     const list = tasksOf(pid);
-    return { done: list.filter((t) => t.confirmed).length, open: list.filter((t) => !t.confirmed).length, total: list.length };
+    return {
+      done: list.filter((t) => t.confirmed && !isVoid(t)).length,
+      open: list.filter((t) => !t.confirmed || isVoid(t)).length,
+      total: list.length,
+    };
   }
 
-  /** Steht schon ein Bild zur Aufgabe? */
   const photoFor = (aid) => (SS.store ? SS.store.album().find((p) => p.aid === aid) : null);
 
-  /**
-   * Foto zur Aufgabe hinterlegen. Ohne Bild gilt eine Aufgabe nicht als
-   * erledigt — es sei denn, der Wirt hat den Fotonachweis abgeschaltet.
-   */
+  /** Foto zur Aufgabe hinterlegen. Ohne Bild gilt eine Aufgabe nicht. */
   function attachPhoto(pid, aid, data) {
     const t = findTask(pid, aid);
     if (!t) { toast("Die Aufgabe gibt's ned.", "err"); return false; }
     if (t.confirmed) { toast("Is scho abgehakt.", "err"); return false; }
+    if (!data) { toast("Ohne Bild geht's ned.", "err"); return false; }
     const rec = SS.store.addPhoto({
       aid: aid, pid: pid, data: data, taskId: t.taskId,
       who: nameOf(pid), groupCode: state.code || null, text: t.text,
@@ -286,19 +279,22 @@ window.SS = (function () {
     t.photo = rec.id;
     t.at = Date.now();
     t.done = true;
+    // Neuer Nachweis: alte Bewertungen gelten nicht mehr.
+    t.flagBy = []; t.voided = false;
+    state.reviews[aid] = { ok: [], bad: [] };
     logLine(nameOf(pid) + " hat einen Nachweis gebracht.", "ok");
     return true;
   }
 
-  /** Der Wirt (oder die Person selbst) hakt eine Aufgabe ab. */
-  function confirmTask(pid, aid, byWirt) {
+  /** Eine Aufgabe abhaken — nur mit Foto. */
+  function confirmTask(pid, aid, byHost) {
     const t = findTask(pid, aid);
     if (!t) return false;
     if (t.confirmed) return false;
     if (!t.photo) { toast("Ohne Foto wird des nix.", "err"); return false; }
     t.confirmed = true;
     t.confirmedAt = Date.now();
-    t.confirmedBy = byWirt ? "wirt" : "selbst";
+    t.confirmedBy = byHost ? "wirt" : "selbst";
     if (SS.store) SS.store.addChronicle({
       type: "aufgabe", groupCode: state.code || null, group: !!state.code,
       who: nameOf(pid), task: t.text, points: t.points, game: state.groupName,
@@ -311,13 +307,13 @@ window.SS = (function () {
     const t = findTask(pid, aid);
     if (!t) return false;
     const rec = t.photo ? SS.store.album().find((p) => p.id === t.photo) : null;
-    if (rec) { SS.store.dropPhoto(rec.id); }
+    if (rec) SS.store.dropPhoto(rec.id);
     t.photo = null; t.done = false; t.at = null;
     logLine("Nachweis von " + nameOf(pid) + " wurde abgelehnt" + (reason ? ": " + reason : "."));
     return true;
   }
 
-  /** Sidequest annehmen (freiwillig). */
+  /* ── Sidequests ───────────────────────────────────────────────────────── */
   function takeSidequest(pid, sid) {
     const sq = state.sidequests.find((s) => s.id === sid);
     if (!sq) return false;
@@ -327,17 +323,17 @@ window.SS = (function () {
     return true;
   }
 
-  /** Sidequest mit Foto abschließen. */
   function finishSidequest(pid, sid, data) {
     const sq = state.sidequests.find((s) => s.id === sid);
     if (!sq) return false;
     sq.done = sq.done || {};
     if (sq.done[pid]) { toast("Is scho erledigt.", "err"); return false; }
+    if (!data) { toast("Ohne Bild geht's ned.", "err"); return false; }
     const rec = SS.store.addPhoto({
       aid: "sq:" + sid, pid: pid, data: data, who: nameOf(pid),
       groupCode: state.code || null, text: sq.text, sidequest: true,
     });
-    sq.done[pid] = { photo: rec.id, at: Date.now(), points: sq.points || 2 };
+    sq.done[pid] = { photo: rec.id, at: Date.now(), points: sq.points || 2, voided: false };
     if (SS.store) SS.store.addChronicle({
       type: "sidequest", groupCode: state.code || null, group: !!state.code,
       who: nameOf(pid), task: sq.text, points: sq.points || 2, game: state.groupName,
@@ -346,7 +342,6 @@ window.SS = (function () {
     return true;
   }
 
-  /** Sidequest-Vorschlag aus der Runde einreichen. */
   function proposeSidequest(pid, text) {
     const t = String(text || "").trim().slice(0, 140);
     if (t.length < 6) { toast("Des is a bissla kurz.", "err"); return false; }
@@ -356,18 +351,17 @@ window.SS = (function () {
   }
 
   /** Vorschlag freigeben: wird zur Sidequest und bekommt eine zufällige Person. */
-  function approveProposal(id, hostPid) {
+  function approveProposal(id) {
     const i = state.proposals.findIndex((p) => p.id === id);
     if (i === -1) return false;
     const p = state.proposals[i];
     const rng = seededRng((state.seed || "seidla") + ":sq:" + p.id);
     const pool = alive().map((x) => x.id);
     const drawn = pool.length ? pool[Math.floor(rng() * pool.length)] : null;
-    const sq = {
+    state.sidequests.push({
       id: uid(8), text: p.text, points: 2, by: p.by, drawn: drawn,
       takenBy: [], done: {}, at: Date.now(),
-    };
-    state.sidequests.push(sq);
+    });
     state.proposals[i].status = "freigegeben";
     logLine("Sidequest freigegeben: " + p.text + (drawn ? " — gezogen: " + nameOf(drawn) : ""), "ok");
     return true;
@@ -383,6 +377,7 @@ window.SS = (function () {
   function dealTasks() {
     const res = SS.assign.deal(state.players, {
       perPlayer: state.settings.perPlayer,
+      modeId: state.settings.modeId,
       maxLevel: state.settings.maxLevel,
       types: state.settings.types,
       seed: state.seed,
@@ -392,15 +387,16 @@ window.SS = (function () {
     state.phase = "running";
     state.sidequests = state.sidequests || [];
     state.proposals = [];
+    state.reviews = {};
     const lonely = SS.assign.lonelyPlayers(state.players, res.byPlayer);
-    if (lonely.length) {
-      logLine("Achtung: " + lonely.map(nameOf).join(", ") + " bekommt keinen Besuch ab. Runde prüfen.", "err");
-    }
-    logLine("Aufgaben ausgeteilt: " + alive().length + " Leut, " + state.settings.perPlayer + " Aufgaben pro Person.", "ok");
+    if (lonely.length) logLine("Achtung: " + lonely.map(nameOf).join(", ") + " bekommt keinen Besuch ab.", "err");
+    const mode = SS.tasks.modeById(state.settings.modeId);
+    logLine("Aufgaben ausgeteilt: " + alive().length + " Leut, " + state.settings.perPlayer +
+      " pro Person, Modus «" + mode.name + "».", "ok");
     if (SS.store) SS.store.addChronicle({
       type: "abend", groupCode: state.code || null, group: true,
       who: null, game: state.groupName,
-      task: "Aufgaben ausgeteilt (" + alive().length + " Leut)",
+      task: "Aufgaben ausgeteilt (" + alive().length + " Leut, " + mode.name + ")",
     });
     // Der neue Stand muss raus, sonst sitzen die Gäste ohne Aufgaben da.
     if (isHost()) {
@@ -409,12 +405,114 @@ window.SS = (function () {
     }
   }
 
-  /* ── Netzwerkaktionen ─────────────────────────────────────────────────── */
+  /* ── Gesamtwertung ────────────────────────────────────────────────────── */
   /**
-   * Aktionen gehen immer an den Host, der den Abend führt. Gäste schicken,
-   * der Wirt führt aus und verteilt den neuen Stand. Genau wie beim
-   * Ausgangskorb: ohne Netz wird die Aktion zwischengespeichert.
+   * Am Ende bewertet die Runde die Nachweise. Jeder bestätigte Nachweis kann
+   * von den Mitspielern als "gilt" oder "gilt nicht" bewertet werden. Kippt
+   * die Mehrheit auf "gilt nicht", wird die Aufgabe ungültig und die Punkte
+   * sind weg.
+   *
+   * Der Wirt kann das übersteuern: er kann eine Wertung aussetzen oder eine
+   * Aufgabe wieder gültig machen. Damit hängt niemand von einer Laune ab.
    */
+  function startReview() {
+    state.phase = "review";
+    state.reviews = state.reviews || {};
+    logLine("Die Gesamtwertung läuft. Jeder bewertet die Nachweise der anderen.", "ok");
+    if (isHost()) { sync(); if (state.mode === "online") net.broadcast({ t: "review" }); }
+    return true;
+  }
+
+  function reviewOf(aid) {
+    if (!state.reviews[aid]) state.reviews[aid] = { ok: [], bad: [] };
+    return state.reviews[aid];
+  }
+
+  /** Bewertung abgeben: ok = gilt, bad = gilt nicht. */
+  function rate(pid, aid, verdict) {
+    const found = findTaskAnywhere(aid);
+    if (!found) return false;
+    const t = found.task;
+    if (!t.confirmed) { toast("Erst wenn der Nachweis freigegeben ist.", "err"); return false; }
+    if (found.pid === pid) { toast("Die eigene Aufgabe bewertet man nicht.", "err"); return false; }
+    const r = reviewOf(aid);
+    r.ok = r.ok.filter((x) => x !== pid);
+    r.bad = r.bad.filter((x) => x !== pid);
+    if (verdict === "ok") r.ok.push(pid); else r.bad.push(pid);
+    // Schwelle: ein Drittel der Runde, mindestens zwei Stimmen.
+    const need = Math.max(2, Math.ceil(alive().length / 3));
+    t.flagBy = r.bad;
+    t.flagged = r.bad.length;
+    if (r.bad.length >= need && !state.settings.hostOverride) {
+      t.voided = true;
+      logLine("Aufgabe von " + nameOf(found.pid) + " wurde für ungültig erklärt.", "err");
+    } else if (r.bad.length >= need) {
+      logLine("Aufgabe von " + nameOf(found.pid) + " hat genug Gegenstimmen — der Wirt entscheidet.", "err");
+    }
+    return true;
+  }
+
+  /** Wirt: eine beanstandete Aufgabe für ungültig erklären oder retten. */
+  function setVoid(pid, aid, voided) {
+    const t = findTask(pid, aid);
+    if (!t) return false;
+    t.voided = !!voided;
+    logLine((voided ? "Der Wirt erklärt eine Aufgabe für ungültig: " : "Der Wirt rettet eine Aufgabe: ") + t.text);
+    return true;
+  }
+  /** Wirt: Wertung komplett aussetzen — nichts wird ungültig. */
+  function clearFlags(pid, aid) {
+    const t = findTask(pid, aid);
+    if (!t) return false;
+    t.flagBy = []; t.flagged = 0; t.voided = false;
+    state.reviews[aid] = { ok: [], bad: [] };
+    logLine("Der Wirt setzt die Beanstandungen zurück.");
+    return true;
+  }
+
+  /** Welche Aufgaben stehen zur Bewertung? Alles Bestätigte. */
+  function reviewable(exceptPid) {
+    const out = [];
+    Object.keys(state.assignments).forEach((pid) => {
+      if (pid === exceptPid) return;
+      tasksOf(pid).forEach((t) => { if (t.confirmed) out.push({ pid: pid, task: t }); });
+    });
+    return out;
+  }
+
+  /* ── Chat ─────────────────────────────────────────────────────────────── */
+  /**
+   * Der Spielchat. Alle Nachrichten laufen über den Wirt, damit auch Gäste
+   * untereinander schreiben können. Ohne Netz wandert die Nachricht in den
+   * Ausgangskorb und kommt später an.
+   */
+  function sendChat(text) {
+    const msg = String(text || "").trim().slice(0, 200);
+    if (!msg) return false;
+    const pid = state.mode === "online" ? state.me : (state.players[0] && state.players[0].id);
+    const from = nameOf(pid) || "Gast";
+    const id = uid(10);
+    if (SS.store) SS.store.addChat({ id: id, pid: pid, from: from, text: msg, at: Date.now(), own: true });
+    if (state.mode === "online" && state.role === "guest") {
+      if (!net.sendToHost({ t: "chat", id: id, text: msg, from: from })) {
+        state.pending = true;
+        if (SS.store) SS.store.queue({ kind: "chat", text: msg, from: from, id: id, at: Date.now() });
+        toast("Kein Netz — die Nachricht geht später raus.", "err");
+      }
+    } else if (state.mode === "online" && state.role === "host") {
+      net.broadcast({ t: "chat", id: id, text: msg, from: from });
+    }
+    emit("chat");
+    return true;
+  }
+  /** Eingehende Chatzeile (vom Wirt oder von einem Gast) ablegen. */
+  function receiveChat(line) {
+    if (!SS.store) return;
+    SS.store.addChat(line);
+    emit("chat");
+  }
+
+  /* ── Netzwerkaktionen ─────────────────────────────────────────────────── */
   function act(name, payload) {
     const pid = state.mode === "online" ? state.me : (state.players[0] && state.players[0].id) || null;
     actAs(pid, name, payload);
@@ -424,28 +522,26 @@ window.SS = (function () {
     if (state.mode === "online" && state.role === "guest") {
       if (pid !== state.me) { toast("Nur eigene Sachen sind möglich.", "err"); return; }
       if (!net.sendToHost({ t: "act", pid: pid, name: name, payload: payload })) {
-        // Kein Kontakt: in den Ausgangskorb, kommt später nach.
         state.pending = true;
         if (SS.store) SS.store.queue({ kind: "aktion", action: name, payload: payload, pid: pid, at: Date.now() });
-        toast("Kein Netz — wird nachgereicht.", "err");
+        // Ohne Netz trotzdem am eigenen Gerät ausführen, damit sofort sichtbar
+        // ist, dass es geklappt hat. Beim nächsten Kontakt schickt der Wirt
+        // seinen verbindlichen Stand nach und überschreibt das wieder.
+        applyAction(pid, name, payload);
+        toast("Kein Netz — am Gerät gespeichert, wird nachgereicht.", "err");
       }
     } else {
       applyAction(pid, name, payload);
     }
   }
 
-  /** Die zentralen Abend-Aktionen. Alles andere läuft über UI-Dialoge. */
+  /** Die zentralen Abend-Aktionen. */
   function applyAction(pid, name, payload) {
     payload = payload || {};
     let changed = false;
     switch (name) {
       case "photo":
-        if (state.settings.confirmMode === "self") {
-          changed = attachPhoto(payload.pid || pid, payload.aid, payload.data);
-          if (changed && state.settings.confirmMode === "self") confirmTask(payload.pid || pid, payload.aid, false);
-        } else {
-          changed = attachPhoto(payload.pid || pid, payload.aid, payload.data);
-        }
+        changed = attachPhoto(payload.pid || pid, payload.aid, payload.data);
         break;
       case "confirm":
         changed = confirmTask(payload.pid, payload.aid, true);
@@ -463,10 +559,22 @@ window.SS = (function () {
         changed = proposeSidequest(pid, payload.text);
         break;
       case "approve":
-        changed = approveProposal(payload.id, pid);
+        changed = approveProposal(payload.id);
         break;
       case "reject-proposal":
         changed = rejectProposal(payload.id);
+        break;
+      case "rate":
+        changed = rate(pid, payload.aid, payload.verdict);
+        break;
+      case "void":
+        changed = setVoid(payload.pid, payload.aid, true);
+        break;
+      case "rescue":
+        changed = setVoid(payload.pid, payload.aid, false);
+        break;
+      case "clear-flags":
+        changed = clearFlags(payload.pid, payload.aid);
         break;
       default:
         console.warn("Unbekannte Aktion", name);
@@ -478,14 +586,10 @@ window.SS = (function () {
     }
   }
 
-  /**
-   * Zustand nach jeder Änderung sichern. Ohne Netz wandert der Nachweis
-   * zusätzlich in den Ausgangskorb und geht später raus.
-   */
   function persist() {
     if (!SS.store) return;
     SS.store.saveSession(state);
-    if (state.phase !== "running" && state.phase !== "over") return;
+    if (state.phase !== "running" && state.phase !== "review" && state.phase !== "over") return;
     if (state.mode === "online" && state.role === "guest" && state.connection !== "online") {
       state.pending = true;
     }
@@ -494,19 +598,20 @@ window.SS = (function () {
   function sync() { net.broadcastState(); renderCurrent(); }
 
   /* ── Auswertung ───────────────────────────────────────────────────────── */
-  /** Alle Nachweise des Abends, für den Wirt und das Album. */
-  function allProofs() {
-    return SS.store ? SS.store.photosOf(state.code || null) : [];
-  }
+  function allProofs() { return SS.store ? SS.store.photosOf(state.code || null) : []; }
 
-  /** Rangliste nach bestätigten Punkten. */
   function ranking() {
     return alive()
-      .map((p) => ({ pid: p.id, name: p.name, color: p.color, points: pointsOf(p.id), ...doneCount(p.id) }))
+      .map((p) => ({
+        pid: p.id, name: p.name, color: p.color,
+        points: pointsOf(p.id),
+        sidequests: sidequestsDone(p.id),
+        voided: tasksOf(p.id).filter((t) => t.confirmed && isVoid(t)).length,
+        ...doneCount(p.id),
+      }))
       .sort((a, b) => b.points - a.points || b.done - a.done);
   }
 
-  /** Wer ist mit wem vernetzt? Für die Netz-Ansicht. */
   function network() {
     const edges = [];
     Object.keys(state.assignments).forEach((pid) => {
@@ -517,18 +622,24 @@ window.SS = (function () {
     return edges;
   }
 
-  /** Der Abendbericht zum Kopieren. */
   function buildReport() {
     const L = [];
+    const mode = SS.tasks.modeById(state.settings.modeId);
     L.push("SEIDLA — Abendbericht");
     L.push("Runde: " + state.groupName + (state.code ? " (" + state.code + ")" : ""));
+    L.push("Modus: " + mode.name);
     L.push("Stand: " + new Date().toLocaleString("de-DE"));
     L.push("Dabei: " + alive().length + " Leut · " + state.settings.perPlayer + " Aufgaben pro Person");
     L.push("");
     const r = ranking();
     if (r.length) {
       L.push("RANGLISTE");
-      r.forEach((x, i) => L.push((i + 1) + ". " + x.name + " — " + x.points + " Punkte, " + x.done + " von " + x.total + " Aufgaben"));
+      r.forEach((x, i) => {
+        let line = (i + 1) + ". " + x.name + " — " + x.points + " Punkte, " + x.done + " von " + x.total + " Aufgaben";
+        if (x.sidequests) line += ", " + x.sidequests + " Sidequests";
+        if (x.voided) line += " (" + x.voided + " ungültig)";
+        L.push(line);
+      });
       L.push("");
     }
     const sq = state.sidequests.filter((s) => Object.keys(s.done || {}).length);
@@ -536,7 +647,7 @@ window.SS = (function () {
       L.push("SIDEQUESTS");
       sq.forEach((s) => {
         L.push("- " + s.text);
-        Object.keys(s.done).forEach((pid) => L.push("    ✓ " + nameOf(pid)));
+        Object.keys(s.done).forEach((pid) => L.push("    ✓ " + nameOf(pid) + (s.done[pid].voided ? " (ungültig)" : "")));
       });
       L.push("");
     }
@@ -551,14 +662,20 @@ window.SS = (function () {
 
   return {
     $, $$, el, frag, esc, shuffle, seededRng, uid, clamp, pick,
-    PALETTE, colorFor, initial, LS, toast, modal, closeModal,
+    PALETTE, colorFor, initial, toast, modal, closeModal,
     state, on, emit, player, nameOf, alive, myPid, isHost, connectedCount,
     logLine, addPlayer, removePlayer,
     // Abend
-    tasksOf, myTasks, findTask, findTaskAnywhere, pointsOf, sidequestsDone, doneCount, photoFor,
+    tasksOf, myTasks: () => tasksOf(state.mode === "online" ? state.me : (state.players[0] && state.players[0].id)),
+    findTask, findTaskAnywhere, pointsOf, sidequestsDone, doneCount, photoFor,
+    isVoid,
     attachPhoto, confirmTask, rejectTask,
     takeSidequest, finishSidequest, proposeSidequest, approveProposal, rejectProposal,
     dealTasks, act, actAs, applyAction, applyActionRaw: applyAction,
+    // Wertung
+    startReview, reviewOf, rate, setVoid, clearFlags, reviewable,
+    // Chat
+    sendChat, receiveChat,
     sync, net, persist, setRenderCurrent, renderCurrent,
     allProofs, ranking, network, buildReport,
   };
