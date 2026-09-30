@@ -1,0 +1,4 @@
+node_modules/
+_*.mjs
+_*.py
+.DS_Store

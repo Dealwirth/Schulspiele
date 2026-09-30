@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1d3557">
+<meta name="description" content="Schulspiele — klassische Online-Multiplayer-Spiele fuer den Unterricht. Gruppen mit Code erstellen, im selben WLAN verbinden oder direkt am Geraet spielen.">
+<title>Schulspiele — Klassiker fuer die Pause</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%231d3557'/%3E%3Ctext x='50' y='70' font-size='58' text-anchor='middle' fill='%23e9c46a' font-family='Georgia'%3E%26%2310003%3B%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/classic.css">
+</head>
+<body>
+<div id="app">
+  <!-- ══ KOPFZEILE ══════════════════════════════════════════════ -->
+  <header id="topbar" class="topbar">
+    <div class="topbar-inner">
+      <button class="brand" id="brandBtn" title="Zur Startseite">
+        <span class="brand-mark">&#10003;</span>
+        <span class="brand-text">
+          <strong>Schulspiele</strong>
+          <small>Klassiker fuer die Pause</small>
+        </span>
+      </button>
+      <div class="topbar-right">
+        <span id="netBadge" class="net-badge" title="Verbindungsart">Offline bereit</span>
+        <button id="helpBtn" class="btn btn-ghost">Anleitung</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ══ STARTSEITE / LOBBY ═════════════════════════════════════ -->
+  <main id="view" class="view"></main>
+
+  <!-- ══ MECHANIK-LEISTE (Haeuser, Punkte, Runden) ══════════════ -->
+  <aside id="mechanik" class="mechanik" hidden></aside>
+
+  <!-- ══ STATUSZEILE ════════════════════════════════════════════ -->
+  <footer id="statusbar" class="statusbar">
+    <span id="statusText">Bereit.</span>
+    <span id="statusRight"></span>
+  </footer>
+</div>
+
+<!-- ══ DIALOGE ══════════════════════════════════════════════════ -->
+<div id="modalRoot" class="modal-root" hidden></div>
+<div id="toastRoot" class="toast-root" aria-live="polite"></div>
+
+<script src="vendor/peerjs.min.js" defer></script>
+<script src="js/app.js" defer></script>
+<script src="js/net.js" defer></script>
+<script src="js/ui.js" defer></script>
+<script src="js/games/content.js" defer></script>
+<script src="js/games/registry.js" defer></script>
+<script src="js/games/util.js" defer></script>
+<script src="js/games/board.js" defer></script>
+<script src="js/games/party.js" defer></script>
+<script src="js/games/trivia.js" defer></script>
+<script src="js/boot.js" defer></script>
+</body>
+</html>
