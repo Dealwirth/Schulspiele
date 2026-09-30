@@ -1,114 +1,124 @@
 # Seidla — die fränkische Wirtshausrunde
 
-A Partyspiel-Sammlung für den Samstagabend, den Stammtisch und die ganze
-Wirtshausrunde. Läuft im Browser auf iPhone, iPad, Android-Tablet und Laptop —
-ohne Installation, ohne Konto, ohne Werbung.
+Ein Abend, eine Runde, jeder kriegt seine Aufgaben. Kein Minispielkram:
+Aufgaben für die Party, das Fest, den Stammtisch — nachgewiesen mit einem Foto.
 
 **Spielen:** https://dealwirth.github.io/Schulspiele/
 
-Zwei bis hundert Leut, zehn Spiele, ein Abend. Für 18 Jahre und älter gedacht.
+Läuft im Browser auf iPhone, iPad, Android-Tablet und Laptop. Keine
+Installation, kein Konto, keine Werbung. Für Erwachsene gedacht.
 
-## Drei Wege zu spielen
+## So läuft der Abend
 
-**Runde aufmachen (online).** Ein Gerät wird der Wirt und zeigt einen
-vierstelligen Code, zum Beispiel `K7QP`. Alle anderen tippen den Code unter
-„Mit Code nei" ein und spielen auf ihrem eigenen Bildschirm. Der Aufbau läuft
-über WebRTC (PeerJS), danach reden die Geräte direkt miteinander. Ein
-Internetzugang ist für den Verbindungsaufbau nötig.
+**Beitreten.** Der Wirt macht eine Runde auf und bekommt einen vierstelligen
+Code. Alle anderen treten mit dem Code bei. Der eigene Name bleibt auf dem
+Gerät gespeichert — beim nächsten Mal steht er schon im Feld.
 
-**Am selben Gerät.** Das Gerät wandert von Hand zu Hand. Bei Spielen, wo alle
-gleichzeitig antworten, tippt jeder vorher seinen Namen an, damit die Punkte im
-richtigen Haus landen.
+**Aufgaben bekommen.** Der Wirt wählt aus, welche Aufgabentypen in Frage
+kommen, wie derb es werden darf und wie viele Aufgaben jeder bekommt
+(5 bis 10). Dann teilt er aus — jeder hat seine eigene Liste.
 
-**Ohne Netz weiterspielen.** Reißt die Verbindung ab, läuft der Abend trotzdem
-weiter. Was passiert ist, wandert in den Ausgangskorb und wird automatisch
-nachgereicht, sobald wieder Netz da ist — der Wirt sieht dann in der Chronik,
-was in der Zwischenzeit gespielt wurde.
+**Nachweisen.** Eine Aufgabe gilt erst als erledigt, wenn ein Foto da ist.
+Das Handy öffnet die Kamera, das Bild wird verkleinert gespeichert. Der Wirt
+gibt frei oder lehnt ab.
 
-> Reines Bluetooth zwischen iPhone und Android ist im Browser nicht möglich.
-> WebRTC ist der plattformübergreifende Weg, den iOS und Android beide erlauben.
-> Ohne Internet bleibt der Modus „Am selben Gerät".
+**Vernetzt.** Die meisten Aufgaben hängen an einer anderen Person: *„Stoß mit
+Resi an"*, *„Bring Kalle dazu, mit dir zu tanzen"*. Beim Austeilen wird ein
+Ring gelegt, damit jeder mindestens einmal besucht wird — so redet die ganze
+Runde miteinander und niemand steht am Rand.
 
-## Die Spiele
+## Die Aufgabentypen
 
-| Spiel | Leut | Art |
-| --- | --- | --- |
-| Ich hab noch nie | 2–100 | Klassiker zum Einstieg |
-| Wer würde eher | 3–100 | Abstimmung, große Runde |
-| Wahrheit oder Pflicht | 2–100 | Klassiker |
-| Flaschendrehen | 3–100 | Aufgabe für eine Person |
-| Bumm (Bombenspiel) | 3–100 | Action, alle gleichzeitig |
-| Reaktionsduell | 2–100 | Wer war zuerst |
-| Franken-Quiz | 2–100 | Wissen, Dialekt und Bräuche |
-| Zungenbrecher | 2–100 | Wort, laut |
-| Turnierbaum | 4–64 | Wettkampf bis zum Sieger |
-| Chronik | — | Wirtshausbuch mit Auswertung |
+Der Wirt kann jeden Typ einzeln an- und abwählen:
 
-Dazu im Hintergrund: Punkte über alle Runden, Schluck- oder Aufgabenstrafen
-(einstellbar), ein Abendbericht zum Kopieren und die Wirtshaus-Chronik.
+| Typ | Was drin steckt |
+| --- | --- |
+| 🍻 Anstoßen | Mit jemandem anstoßen, Beweisfoto |
+| 🥤 Trinken | Ein Schluck auf Kommando |
+| 💬 Reden | Ein Gespräch anfangen oder halten |
+| 🕺 Bewegung | Tanzen, hüpfen, hinstellen |
+| 📸 Foto & Pose | Ein Bild stellen |
+| 🎤 Singen | Laut und schief |
+| 🤝 Kontakt | Leute ansprechen, die man nicht kennt |
+| 🔥 Mut | Überwindung, aber harmlos |
+| 🤪 Quatsch | Blödsinn mit Ansage |
+| 💥 Wild | Für die, die es wissen wollen |
+
+Dazu ein Schieberegler für die Härte: nur harmlos, bis ordentlich oder bis
+wild. Über 80 Aufgaben stecken im Katalog, jede mit Platzhaltern, die beim
+Austeilen mit echten Namen gefüllt werden.
+
+## Sidequests
+
+Extra-Aufgaben für zwischendurch. Die Runde schlägt sie selbst vor, der Wirt
+gibt frei, was in Ordnung geht. Dann zieht eine zufällige Person die Sidequest.
+Sie ist ausdrücklich freiwillig — wer mitmacht, kassiert Extrapunkte, wer nicht,
+auch kein Drama.
+
+## Ohne Netz
+
+Fällt die Verbindung aus, geht der Abend am Gerät weiter. Nachweise und
+Sidequests wandern in einen Ausgangskorb und gehen automatisch raus, sobald
+wieder Empfang da ist. Der Wirt sieht danach, was in der Zwischenzeit passiert
+ist. Nach einem Neustart findet ein Gast über den gespeicherten Code von selbst
+zurück in die Runde.
 
 ## Der Wirt-Bereich
 
-Der Wirt leitet den Abend. Zugang über „Wirt" in der Kopfzeile mit dem
-Schlüssel `135LowLap`. Damit lässt sich die Runde umbenennen, der Punktestand
-zurücksetzen, Teilnehmer entfernen und am Schluss der Abendbericht
-zusammenstellen.
+Zugang über „Wirt" in der Kopfzeile mit dem Schlüssel `135LowLap`. Darin:
+Zwischenstand, Teilnehmer verwalten, Aufgaben neu austeilen, Sidequests
+freigeben, Abend abschließen und der Bericht zum Kopieren.
 
 Ehrlich gesagt: Das ist ein Wirtshaus-Schlüssel, kein Banktresor. Die Seite
-läuft ohne Server im Browser, also findet jeder, der sich auskennt, den
-Schlüssel im Quelltext. Er hält die Runde davon ab, versehentlich im Management
-zu landen — mehr soll er nicht.
+läuft ohne Server im Browser, also steht der Schlüssel im Quelltext. Er hält
+die Runde davon ab, versehentlich im Management zu landen — mehr soll er nicht.
 
 ## Was am Ende rauskommt
 
-Die Chronik sammelt jeden Abend: wer gewonnen hat, wer wie oft einen Schluck
-kassiert hat, welche Spiele liefen. Daraus entsteht der Abendbericht — eine
-Textzusammenfassung zum Kopieren und in die Gruppe schicken.
-
-Eine Bilderbuch- oder KI-Auswertung ist bewusst noch nicht drin. Die Chronik
-ist so gebaut, dass sie sich später anhängen lässt.
+Eine Rangliste nach Punkten, das Album mit allen Nachweisen des Abends und ein
+Abendbericht zum Kopieren: wer wie viel geschafft hat, welche Sidequests
+gelaufen sind und wer wen besucht hat.
 
 ## Technik
 
 - **Ein Bundle.** `node build.js` packt HTML, CSS und alle Skripte in eine
-  einzige `index.html` im Wurzelverzeichnis. Keine Abhängigkeiten zur Laufzeit.
-- **Netzwerk.** PeerJS/WebRTC, Wirt-Gast-Stern. Spielzustand läuft über den Wirt.
-- **Speicher.** localStorage: Profil, Runde, laufende Sitzung, Ausgangskorb,
-  Chronik. Der Ausgangskorb überlebt Neustarts.
-- **Determinismus.** Karten, Würfe und Auslosungen hängen an einem Seed, damit
-  alle Geräte dasselbe sehen, ohne jede Aktion zu übertragen.
+  einzige `index.html`. Keine Abhängigkeiten zur Laufzeit.
+- **Netzwerk.** PeerJS/WebRTC, Wirt-Gast-Stern. Der Wirt führt den Abend,
+  Aktionen gehen über ihn.
+- **Speicher.** localStorage: Profil, Runde, laufender Abend, Ausgangskorb,
+  Album. Alles überlebt einen Neustart.
+- **Determinismus.** Aufgaben werden aus einem festen Zufallskeim ausgeteilt.
+  Wirt und Gäste sehen dieselbe Liste, ohne dass jede Aufgabe einzeln
+  verschickt werden muss.
+- **Fotos.** Auf 720 px verkleinert und als JPEG gespeichert. Läuft der
+  Speicher voll, werden die ältesten Bilder geopfert statt den Abend zu
+  blockieren.
 - **Kein Tracking.** Keine Cookies, keine Analysedienste, kein Konto.
 
 ## Selbst bauen
 
 ```bash
 node build.js          # erzeugt index.html im Wurzelverzeichnis
-```
-
-Zum Ausprobieren genügt ein statischer Server im Wurzelverzeichnis:
-
-```bash
-python3 -m http.server 8765
+python3 -m http.server 8765   # zum Ausprobieren
 ```
 
 ## Dateien
 
 ```
-src/index.html           Hülle (Kopfzeile, Ansichten, Dialoge)
+src/index.html           Hülle
 src/css/seidla.css       Design: Wirtshaus, Kupfer, Bierfilz
-src/js/app.js            Zustand, Punkte, Aktionen, Dialoge, Hilfsfunktionen
-src/js/store.js          Speicher, Ausgangskorb, Chronik, Auswertung
+src/js/app.js            Zustand, Aufgaben, Punkte, Auswertung
+src/js/tasks.js          Aufgabenkatalog und Typen
+src/js/assign.js         Austeilen und Ring-Vernetzung
+src/js/proof.js          Fotonachweis: Aufnahme und Verkleinern
+src/js/store.js          Speicher, Ausgangskorb, Album, Chronik
 src/js/net.js            Runde aufmachen, Beitritt, Sync, Nachreichen
-src/js/ui.js             Ansichten, Katalog, Lobby, Spielansicht, Wirt-Bereich
-src/js/boot.js           Start, Wiederherstellen, automatisches Nachreichen
-src/js/games/content.js  Texte, Karten, Fragen
-src/js/games/registry.js Katalog und Einstellungen
-src/js/games/party.js    Ich hab noch nie, Wer würde eher, Wahrheit/Pflicht, Flaschendrehen
-src/js/games/action.js   Bumm, Reaktionsduell, Franken-Quiz, Zungenbrecher, Turnierbaum
-src/js/games/util.js     Hilfen für die Spielmodule
+src/js/ui.js             Ansichten: Beitreten, Aufgaben, Sidequests, Album, Wirt
+src/js/boot.js           Start und Wiederherstellen
 ```
 
 ## Hinweis
 
 Gedacht für Erwachsene. Es gibt einen Wasser-Modus für alle, die nichts
-trinken — die Strafen sind auf der Startseite umstellbar.
+trinken. Jede Aufgabe darf an eine Vertrauensperson weitergegeben werden —
+niemand wird bloßgestellt.

@@ -1,6 +1,8 @@
 /* ==========================================================================
-   Schulspiele — Kern
-   Namensraum, Hilfsfunktionen, Zustand, Netzwerkschicht, Ansichten.
+   Seidla — Kern
+   Namensraum, Hilfsfunktionen, Zustand, Abendlogik.
+   Kein Minispielkram: Der Abend besteht aus Aufgaben, die jeder mit einem
+   Foto nachweist, und aus Sidequests, die die Runde selbst vorschlägt.
    ========================================================================== */
 window.SS = (function () {
   "use strict";
@@ -53,7 +55,7 @@ window.SS = (function () {
     }
     return a;
   }
-  // deterministischer Zufall aus Text (fuer gemeinsames Mischen im Netzwerk)
+  // deterministischer Zufall aus Text (fuer gemeinsames Austeilen im Netzwerk)
   function seededRng(seedStr) {
     let h = 1779033703 ^ String(seedStr).length;
     for (let i = 0; i < String(seedStr).length; i++) {
@@ -116,7 +118,7 @@ window.SS = (function () {
     box.appendChild(el("h2", { text: title }));
     box.appendChild(bodyNode);
     const act = el("div", { class: "modal-actions" });
-    (actions || [{ label: "Schliessen" }]).forEach((a) => {
+    (actions || [{ label: "Zumachen" }]).forEach((a) => {
       act.appendChild(
         el("button", {
           class: "btn " + (a.kind === "primary" ? "btn-gold" : "btn-outline"),
@@ -170,20 +172,22 @@ window.SS = (function () {
     players: [],              // [{id,name,color,connected,isHost,index}]
     hostId: null,
     me: null,                 // eigene pid (online) / null (lokal)
-    seat: null,               // lokaler Modus: wer gerade das Gerät hält
-    // Partie
-    gameId: null,
-    settings: {},
-    phase: "lobby",           // 'lobby' | 'playing' | 'over'
-    round: 1,
-    turn: null,
-    scores: {},
-    pub: {},                  // oeffentlicher Spielzustand (vom Spielmodul gefuellt)
-    priv: {},                 // geheimer Zustand je Spieler (pid -> Objekt)
+    // Abend
+    phase: "lobby",           // 'lobby' | 'running' | 'over'
+    groupName: "Wirtshausrunde",
+    seed: null,               // Zufallskeim des Abends
+    ring: [],                 // Reihenfolge der Vernetzung
+    assignments: {},          // pid -> [Aufgabe]
+    sidequests: [],           // freigegebene Sidequests (freiwillig)
+    proposals: [],            // Vorschläge aus der Runde, warten auf den Wirt
+    settings: {
+      perPlayer: 7,
+      maxLevel: 2,
+      types: null,            // null = alle Typen
+      sidequests: true,
+      confirmMode: "host",    // 'host' | 'self'
+    },
     log: [],
-    lastResult: null,
-    syncSeq: 0,               // zählt bestätigte Syncs (für Chronik/Offline-Abgleich)
-    syncSeed: null,           // gemeinsamer Zufallskeim einer Partie
   };
 
   const listeners = {};
@@ -194,23 +198,16 @@ window.SS = (function () {
   };
 
   const player = (pid) => state.players.find((p) => p.id === pid) || null;
-  const me = () => (state.mode === "online" ? player(state.me) : player(state.turn));
   const alive = () => state.players.filter((p) => p.connected !== false);
   const myPid = () => state.me;
   const isHost = () => state.role === "host" || state.role === "solo";
   const connectedCount = () => alive().length;
+  const nameOf = (pid) => { const p = player(pid); return p ? p.name : "jemand"; };
 
   function logLine(text, kind) {
     state.log.push({ t: Date.now(), text: String(text), kind: kind || "" });
     if (state.log.length > 200) state.log.shift();
     emit("log", state.log[state.log.length - 1]);
-  }
-
-  function addScore(pid, n) {
-    state.scores[pid] = (state.scores[pid] || 0) + n;
-  }
-  function setScore(pid, n) {
-    state.scores[pid] = n;
   }
 
   /* ── Teilnehmerverwaltung ─────────────────────────────────────────────── */
@@ -227,7 +224,6 @@ window.SS = (function () {
       joinedAt: Date.now(),
     };
     state.players.push(p);
-    if (!(p.id in state.scores)) state.scores[p.id] = 0;
     if (p.isHost) state.hostId = p.id;
     return p;
   }
@@ -236,176 +232,334 @@ window.SS = (function () {
     if (p) p.connected = false;
   }
 
-  /* ── Aktionsschnittstelle für Spielmodule ─────────────────────────────── */
+  /* ══ Der Abend ══════════════════════════════════════════════════════════ */
+
+  /** Alle Aufgaben einer Person. */
+  const tasksOf = (pid) => state.assignments[pid] || [];
+  const myTasks = () => tasksOf(state.mode === "online" ? state.me : (state.players[0] && state.players[0].id));
+
+  function findTask(pid, aid) {
+    const list = tasksOf(pid);
+    return list.find((t) => t.aid === aid) || null;
+  }
+  /** Aufgabe irgendwo im Abend finden (der Wirt sieht alle). */
+  function findTaskAnywhere(aid) {
+    for (const pid in state.assignments) {
+      const t = tasksOf(pid).find((x) => x.aid === aid);
+      if (t) return { pid: pid, task: t };
+    }
+    return null;
+  }
+
+  /** Punkte einer Person: bestätigte Aufgaben plus geschaffte Sidequests. */
+  function pointsOf(pid) {
+    let n = tasksOf(pid).reduce((sum, t) => sum + (t.confirmed ? t.points : 0), 0);
+    (state.sidequests || []).forEach((q) => {
+      if (q.done && q.done[pid]) n += (q.done[pid].points || 2);
+    });
+    return n;
+  }
+  /** Wie viele Sidequests hat jemand geschafft? */
+  function sidequestsDone(pid) {
+    return (state.sidequests || []).filter((q) => q.done && q.done[pid]).length;
+  }
+  function doneCount(pid) {
+    const list = tasksOf(pid);
+    return { done: list.filter((t) => t.confirmed).length, open: list.filter((t) => !t.confirmed).length, total: list.length };
+  }
+
+  /** Steht schon ein Bild zur Aufgabe? */
+  const photoFor = (aid) => (SS.store ? SS.store.album().find((p) => p.aid === aid) : null);
+
   /**
-   * Spiele rufen SS.act(name, payload) auf.
-   *  - lokal  : Aktion wird direkt auf dem lokalen Zustand ausgeführt (Akteur = wer am Zug ist)
-   *  - Gast   : Aktion geht an den Host
-   *  - Host   : Aktion wird lokal ausgeführt
+   * Foto zur Aufgabe hinterlegen. Ohne Bild gilt eine Aufgabe nicht als
+   * erledigt — es sei denn, der Wirt hat den Fotonachweis abgeschaltet.
+   */
+  function attachPhoto(pid, aid, data) {
+    const t = findTask(pid, aid);
+    if (!t) { toast("Die Aufgabe gibt's ned.", "err"); return false; }
+    if (t.confirmed) { toast("Is scho abgehakt.", "err"); return false; }
+    const rec = SS.store.addPhoto({
+      aid: aid, pid: pid, data: data, taskId: t.taskId,
+      who: nameOf(pid), groupCode: state.code || null, text: t.text,
+    });
+    t.photo = rec.id;
+    t.at = Date.now();
+    t.done = true;
+    logLine(nameOf(pid) + " hat einen Nachweis gebracht.", "ok");
+    return true;
+  }
+
+  /** Der Wirt (oder die Person selbst) hakt eine Aufgabe ab. */
+  function confirmTask(pid, aid, byWirt) {
+    const t = findTask(pid, aid);
+    if (!t) return false;
+    if (t.confirmed) return false;
+    if (!t.photo) { toast("Ohne Foto wird des nix.", "err"); return false; }
+    t.confirmed = true;
+    t.confirmedAt = Date.now();
+    t.confirmedBy = byWirt ? "wirt" : "selbst";
+    if (SS.store) SS.store.addChronicle({
+      type: "aufgabe", groupCode: state.code || null, group: !!state.code,
+      who: nameOf(pid), task: t.text, points: t.points, game: state.groupName,
+    });
+    logLine(nameOf(pid) + " hat eine Aufgabe abgehakt (+" + t.points + ").", "ok");
+    return true;
+  }
+
+  function rejectTask(pid, aid, reason) {
+    const t = findTask(pid, aid);
+    if (!t) return false;
+    const rec = t.photo ? SS.store.album().find((p) => p.id === t.photo) : null;
+    if (rec) { SS.store.dropPhoto(rec.id); }
+    t.photo = null; t.done = false; t.at = null;
+    logLine("Nachweis von " + nameOf(pid) + " wurde abgelehnt" + (reason ? ": " + reason : "."));
+    return true;
+  }
+
+  /** Sidequest annehmen (freiwillig). */
+  function takeSidequest(pid, sid) {
+    const sq = state.sidequests.find((s) => s.id === sid);
+    if (!sq) return false;
+    if ((sq.takenBy || []).indexOf(pid) !== -1) return false;
+    sq.takenBy = (sq.takenBy || []).concat([pid]);
+    logLine(nameOf(pid) + " nimmt sich eine Sidequest.", "ok");
+    return true;
+  }
+
+  /** Sidequest mit Foto abschließen. */
+  function finishSidequest(pid, sid, data) {
+    const sq = state.sidequests.find((s) => s.id === sid);
+    if (!sq) return false;
+    sq.done = sq.done || {};
+    if (sq.done[pid]) { toast("Is scho erledigt.", "err"); return false; }
+    const rec = SS.store.addPhoto({
+      aid: "sq:" + sid, pid: pid, data: data, who: nameOf(pid),
+      groupCode: state.code || null, text: sq.text, sidequest: true,
+    });
+    sq.done[pid] = { photo: rec.id, at: Date.now(), points: sq.points || 2 };
+    if (SS.store) SS.store.addChronicle({
+      type: "sidequest", groupCode: state.code || null, group: !!state.code,
+      who: nameOf(pid), task: sq.text, points: sq.points || 2, game: state.groupName,
+    });
+    logLine(nameOf(pid) + " hat eine Sidequest geschafft (+" + (sq.points || 2) + ").", "ok");
+    return true;
+  }
+
+  /** Sidequest-Vorschlag aus der Runde einreichen. */
+  function proposeSidequest(pid, text) {
+    const t = String(text || "").trim().slice(0, 140);
+    if (t.length < 6) { toast("Des is a bissla kurz.", "err"); return false; }
+    state.proposals.push({ id: uid(8), text: t, by: pid, at: Date.now(), status: "offen" });
+    logLine(nameOf(pid) + " hat eine Sidequest vorgeschlagen.", "ok");
+    return true;
+  }
+
+  /** Vorschlag freigeben: wird zur Sidequest und bekommt eine zufällige Person. */
+  function approveProposal(id, hostPid) {
+    const i = state.proposals.findIndex((p) => p.id === id);
+    if (i === -1) return false;
+    const p = state.proposals[i];
+    const rng = seededRng((state.seed || "seidla") + ":sq:" + p.id);
+    const pool = alive().map((x) => x.id);
+    const drawn = pool.length ? pool[Math.floor(rng() * pool.length)] : null;
+    const sq = {
+      id: uid(8), text: p.text, points: 2, by: p.by, drawn: drawn,
+      takenBy: [], done: {}, at: Date.now(),
+    };
+    state.sidequests.push(sq);
+    state.proposals[i].status = "freigegeben";
+    logLine("Sidequest freigegeben: " + p.text + (drawn ? " — gezogen: " + nameOf(drawn) : ""), "ok");
+    return true;
+  }
+  function rejectProposal(id) {
+    const i = state.proposals.findIndex((p) => p.id === id);
+    if (i === -1) return false;
+    state.proposals[i].status = "abgelehnt";
+    return true;
+  }
+
+  /** Aufgaben für alle austeilen. Nur der Wirt. */
+  function dealTasks() {
+    const res = SS.assign.deal(state.players, {
+      perPlayer: state.settings.perPlayer,
+      maxLevel: state.settings.maxLevel,
+      types: state.settings.types,
+      seed: state.seed,
+    });
+    state.assignments = res.byPlayer;
+    state.ring = res.ring;
+    state.phase = "running";
+    state.sidequests = state.sidequests || [];
+    state.proposals = [];
+    const lonely = SS.assign.lonelyPlayers(state.players, res.byPlayer);
+    if (lonely.length) {
+      logLine("Achtung: " + lonely.map(nameOf).join(", ") + " bekommt keinen Besuch ab. Runde prüfen.", "err");
+    }
+    logLine("Aufgaben ausgeteilt: " + alive().length + " Leut, " + state.settings.perPlayer + " Aufgaben pro Person.", "ok");
+    if (SS.store) SS.store.addChronicle({
+      type: "abend", groupCode: state.code || null, group: true,
+      who: null, game: state.groupName,
+      task: "Aufgaben ausgeteilt (" + alive().length + " Leut)",
+    });
+    // Der neue Stand muss raus, sonst sitzen die Gäste ohne Aufgaben da.
+    if (isHost()) {
+      sync();
+      if (state.mode === "online") net.broadcast({ t: "deal" });
+    }
+  }
+
+  /* ── Netzwerkaktionen ─────────────────────────────────────────────────── */
+  /**
+   * Aktionen gehen immer an den Host, der den Abend führt. Gäste schicken,
+   * der Wirt führt aus und verteilt den neuen Stand. Genau wie beim
+   * Ausgangskorb: ohne Netz wird die Aktion zwischengespeichert.
    */
   function act(name, payload) {
-    // Spiele ohne festen Zug (z. B. Flaschendrehen, Turnierbaum) handeln
-    // über den Host — dort gibt es keinen aktiven Spieler.
-    let pid = activePid();
-    if (!pid) pid = state.mode === "online" ? state.me : (state.players[0] && state.players[0].id) || null;
+    const pid = state.mode === "online" ? state.me : (state.players[0] && state.players[0].id) || null;
     actAs(pid, name, payload);
   }
-  /**
-   * Aktion im Namen eines bestimmten Spielers.
-   * Nötig für Spiele, in denen alle gleichzeitig handeln (Reaktion, Quiz).
-   */
   function actAs(pid, name, payload) {
-    if (!pid) { toast("Kein aktiver Spieler.", "err"); return; }
+    if (!pid) { toast("Kein Teilnehmer angemeldet.", "err"); return; }
     if (state.mode === "online" && state.role === "guest") {
-      if (pid !== state.me) { toast("Nur eigene Züge sind möglich.", "err"); return; }
-      net.sendToHost({ t: "act", pid: pid, name: name, payload: payload });
-    } else if (state.mode === "online" && state.role === "host") {
-      applyAction(pid, name, payload);
+      if (pid !== state.me) { toast("Nur eigene Sachen sind möglich.", "err"); return; }
+      if (!net.sendToHost({ t: "act", pid: pid, name: name, payload: payload })) {
+        // Kein Kontakt: in den Ausgangskorb, kommt später nach.
+        state.pending = true;
+        if (SS.store) SS.store.queue({ kind: "aktion", action: name, payload: payload, pid: pid, at: Date.now() });
+        toast("Kein Netz — wird nachgereicht.", "err");
+      }
     } else {
       applyAction(pid, name, payload);
     }
   }
+
+  /** Die zentralen Abend-Aktionen. Alles andere läuft über UI-Dialoge. */
   function applyAction(pid, name, payload) {
-    const game = currentGame();
-    if (!game || !game.action) return;
-    const ctx = makeCtx();
-    try {
-      game.action(ctx, pid, name, payload);
-    } catch (err) {
-      console.error("Aktionsfehler", err);
-      toast("Aktion fehlgeschlagen: " + err.message, "err");
+    payload = payload || {};
+    let changed = false;
+    switch (name) {
+      case "photo":
+        if (state.settings.confirmMode === "self") {
+          changed = attachPhoto(payload.pid || pid, payload.aid, payload.data);
+          if (changed && state.settings.confirmMode === "self") confirmTask(payload.pid || pid, payload.aid, false);
+        } else {
+          changed = attachPhoto(payload.pid || pid, payload.aid, payload.data);
+        }
+        break;
+      case "confirm":
+        changed = confirmTask(payload.pid, payload.aid, true);
+        break;
+      case "reject":
+        changed = rejectTask(payload.pid, payload.aid, payload.reason);
+        break;
+      case "sidequest-take":
+        changed = takeSidequest(pid, payload.sid);
+        break;
+      case "sidequest-done":
+        changed = finishSidequest(pid, payload.sid, payload.data);
+        break;
+      case "propose":
+        changed = proposeSidequest(pid, payload.text);
+        break;
+      case "approve":
+        changed = approveProposal(payload.id, pid);
+        break;
+      case "reject-proposal":
+        changed = rejectProposal(payload.id);
+        break;
+      default:
+        console.warn("Unbekannte Aktion", name);
     }
-    if (isHost()) sync();
-    persist();
-    renderCurrent();
+    if (changed) {
+      if (isHost()) sync();
+      persist();
+      renderCurrent();
+    }
   }
 
   /**
-   * Zustand nach jeder Aktion sichern. Ohne Netz geht die Aktion zusätzlich
-   * in den Ausgangskorb und wird beim nächsten Kontakt nachgereicht.
+   * Zustand nach jeder Änderung sichern. Ohne Netz wandert der Nachweis
+   * zusätzlich in den Ausgangskorb und geht später raus.
    */
   function persist() {
     if (!SS.store) return;
     SS.store.saveSession(state);
-    if (state.phase === "playing" || state.phase === "over") {
-      if (state.mode === "online" && state.role === "guest" && state.connection !== "online") {
-        state.pending = true;
-        SS.store.queue({ kind: "spielzug", gameId: state.gameId, round: state.round, at: Date.now() });
-      }
+    if (state.phase !== "running" && state.phase !== "over") return;
+    if (state.mode === "online" && state.role === "guest" && state.connection !== "online") {
+      state.pending = true;
     }
-  }
-
-  function currentGame() {
-    const g = IMPL[state.gameId];
-    return g || null;
-  }
-
-  /** Ist das aktuelle Spiel ein gleichzeitiges Spiel (alle antworten)? */
-  function isSimultaneous() {
-    const meta = getMeta(state.gameId);
-    return !!(meta && meta.simultaneous);
-  }
-  /** Wer handelt auf diesem Gerät gerade? */
-  function activePid() {
-    if (state.mode === "online") return state.me;
-    // Gleichzeitige Spiele am selben Gerät: ohne gewählten Platz gilt Spieler 1.
-    if (isSimultaneous()) {
-      const seat = state.seat && state.players.some((p) => p.id === state.seat) ? state.seat : null;
-      return seat || (state.players[0] && state.players[0].id) || null;
-    }
-    return state.turn;
-  }
-
-  /** Kontextobjekt, das jedem Spielmodul übergeben wird. */
-  function makeCtx() {
-    const game = currentGame();
-    return {
-      state,
-      // Getter statt Momentaufnahme: startGame() ersetzt diese Objekte, und
-      // Spielmodule halten den Kontext über den gesamten Spielverlauf.
-      get pub() { return state.pub; },
-      get settings() { return state.settings; },
-      get players() { return state.players; },
-      get scores() { return state.scores; },
-      get round() { return state.round; },
-      set round(v) { state.round = v; },
-      get phase() { return state.phase; },
-      set phase(v) { state.phase = v; },
-      get turn() { return state.turn; },
-      set turn(v) { state.turn = v; },
-      get me() { return activePid(); },
-      isHost: isHost(),
-      isLocal: state.mode === "local",
-      simultaneous: isSimultaneous(),
-      player,
-      colorFor,
-      alive,
-      // Darf dieses Geraet fuer pid handeln?
-      canAct(pid) {
-        pid = pid === undefined ? activePid() : pid;
-        if (state.phase !== "playing") return false;
-        if (state.mode === "online") return pid === state.me;
-        return true; // lokal steuert ein Gerät alle
-      },
-      myTurn() {
-        if (state.mode === "online") return isSimultaneous() ? state.phase === "playing" : state.turn === state.me;
-        return true; // gemeinsam genutztes Gerät
-      },
-      roundOver() { return state.turn === null; },
-      addScore, setScore, log: logLine, toast,
-      finish(result) {
-        state.phase = "over";
-        state.lastResult = result || null;
-        logLine("Partie beendet.");
-        if (SS.store) {
-          const meta = getMeta(state.gameId);
-          const order = state.players.slice().sort((a, b) => (state.scores[b.id] || 0) - (state.scores[a.id] || 0));
-          if (order[0] && (state.scores[order[0].id] || 0) > 0) {
-            SS.store.addChronicle({
-              type: "sieg", groupCode: state.code || null, group: !!state.code,
-              game: meta ? meta.name : "", who: order[0].name, points: state.scores[order[0].id] || 0,
-            });
-          }
-        }
-        persist();
-      },
-      reset() {
-        state.phase = "lobby";
-        state.round = 1;
-        state.turn = null;
-        state.pub = {};
-        state.priv = {};
-        state.lastResult = null;
-        Object.keys(state.scores).forEach((k) => (state.scores[k] = 0));
-        state.log = [];
-      },
-      sync() { if (isHost()) sync(); },
-      rerender() { renderCurrent(); },
-      rng: seededRng,
-      random: Math.random,
-      shuffle: (a) => shuffle(a),
-      setSeat(pid) { if (state.mode === "local" && isSimultaneous()) { state.seat = pid; renderCurrent(); } },
-      el, $, $$, esc,
-      modal, closeModal,
-    };
   }
 
   function sync() { net.broadcastState(); renderCurrent(); }
 
-  /* ── Spielregistrierung ───────────────────────────────────────────────── */
-  const GAMES = [];   // Metadaten (Katalog)
-  const IMPL = {};    // Implementierungen
-  function registerGame(meta) { GAMES.push(meta); }
-  function registerImpl(id, impl) { IMPL[id] = impl; }
-  const getMeta = (id) => GAMES.find((g) => g.id === id) || null;
+  /* ── Auswertung ───────────────────────────────────────────────────────── */
+  /** Alle Nachweise des Abends, für den Wirt und das Album. */
+  function allProofs() {
+    return SS.store ? SS.store.photosOf(state.code || null) : [];
+  }
+
+  /** Rangliste nach bestätigten Punkten. */
+  function ranking() {
+    return alive()
+      .map((p) => ({ pid: p.id, name: p.name, color: p.color, points: pointsOf(p.id), ...doneCount(p.id) }))
+      .sort((a, b) => b.points - a.points || b.done - a.done);
+  }
+
+  /** Wer ist mit wem vernetzt? Für die Netz-Ansicht. */
+  function network() {
+    const edges = [];
+    Object.keys(state.assignments).forEach((pid) => {
+      state.assignments[pid].forEach((t) => {
+        if (t.target) edges.push({ from: pid, to: t.target, task: t, confirmed: t.confirmed });
+      });
+    });
+    return edges;
+  }
+
+  /** Der Abendbericht zum Kopieren. */
+  function buildReport() {
+    const L = [];
+    L.push("SEIDLA — Abendbericht");
+    L.push("Runde: " + state.groupName + (state.code ? " (" + state.code + ")" : ""));
+    L.push("Stand: " + new Date().toLocaleString("de-DE"));
+    L.push("Dabei: " + alive().length + " Leut · " + state.settings.perPlayer + " Aufgaben pro Person");
+    L.push("");
+    const r = ranking();
+    if (r.length) {
+      L.push("RANGLISTE");
+      r.forEach((x, i) => L.push((i + 1) + ". " + x.name + " — " + x.points + " Punkte, " + x.done + " von " + x.total + " Aufgaben"));
+      L.push("");
+    }
+    const sq = state.sidequests.filter((s) => Object.keys(s.done || {}).length);
+    if (sq.length) {
+      L.push("SIDEQUESTS");
+      sq.forEach((s) => {
+        L.push("- " + s.text);
+        Object.keys(s.done).forEach((pid) => L.push("    ✓ " + nameOf(pid)));
+      });
+      L.push("");
+    }
+    L.push("WER HAT WEN BESUCHT");
+    network().filter((e) => e.confirmed).forEach((e) => {
+      L.push("- " + nameOf(e.from) + " → " + nameOf(e.to) + ": " + e.task.text);
+    });
+    L.push("");
+    L.push("Nachweise: " + allProofs().length + " Bilder im Album");
+    return L.join("\n");
+  }
 
   return {
     $, $$, el, frag, esc, shuffle, seededRng, uid, clamp, pick,
     PALETTE, colorFor, initial, LS, toast, modal, closeModal,
-    state, on, emit, player, me, alive, myPid, isHost, connectedCount,
-    logLine, addScore, setScore, addPlayer, removePlayer,
-    act, actAs, applyAction, applyActionRaw: applyAction, currentGame, makeCtx, sync, net,
-    isSimultaneous, activePid, setRenderCurrent, renderCurrent, persist,
-    GAMES, IMPL, registerGame, registerImpl, getMeta,
+    state, on, emit, player, nameOf, alive, myPid, isHost, connectedCount,
+    logLine, addPlayer, removePlayer,
+    // Abend
+    tasksOf, myTasks, findTask, findTaskAnywhere, pointsOf, sidequestsDone, doneCount, photoFor,
+    attachPhoto, confirmTask, rejectTask,
+    takeSidequest, finishSidequest, proposeSidequest, approveProposal, rejectProposal,
+    dealTasks, act, actAs, applyAction, applyActionRaw: applyAction,
+    sync, net, persist, setRenderCurrent, renderCurrent,
+    allProofs, ranking, network, buildReport,
   };
 })();

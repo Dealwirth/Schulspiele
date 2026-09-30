@@ -10,7 +10,7 @@
   const SS = window.SS;
 
   const NS = "seidla:";
-  const V = 2; // Format-Version; bei Änderungen alte Stände verwerfen
+  const V = 3; // Format-Version; bei Änderungen alte Stände verwerfen
 
   function read(key, fallback) {
     try {
@@ -99,23 +99,24 @@
   function snapshot(state) {
     return {
       groupCode: state.code || null,
-      groupName: (loadGroup() || {}).name || null,
+      groupName: state.groupName || (loadGroup() || {}).name || null,
       mode: state.mode,
       role: state.role,
-      gameId: state.gameId,
-      settings: state.settings,
       phase: state.phase,
-      round: state.round,
+      group: state.groupName,
+      seed: state.seed,
+      ring: state.ring,
       players: state.players,
-      scores: state.scores,
-      pub: state.pub,
+      assignments: state.assignments,
+      sidequests: state.sidequests,
+      proposals: state.proposals,
+      settings: state.settings,
       at: now(),
-      seq: state.syncSeq || 0,
     };
   }
   function saveSession(state) {
-    if (!state || (!state.gameId && !state.code)) return;
-    if (state.phase !== "playing" && state.phase !== "over") return;
+    if (!state || (!state.seed && !state.code)) return;
+    if (state.phase !== "running" && state.phase !== "over") return;
     write("session", snapshot(state));
   }
   function loadSession() { return read("session", null); }
@@ -179,10 +180,41 @@
     return Object.keys(byName).map((k) => byName[k]).sort((a, b) => b.points - a.points || b.wins - a.wins);
   }
 
+  /* ── Fotoalbum ────────────────────────────────────────────────────────── */
+  /**
+   * Nachweise liegen als verkleinerte Bilder im Gerät. Das Album ist eine
+   * eigene Ablage, damit die Chronik klein bleibt und der Speicher nicht
+   * überläuft, wenn an einem Abend viel fotografiert wird.
+   */
+  function album() { return read("album", []); }
+  function addPhoto(entry) {
+    const list = album();
+    list.unshift(Object.assign({ id: uid(12), at: now() }, entry));
+    if (list.length > 240) list.length = 240;
+    if (!write("album", list)) {
+      // Speicher voll: die ältesten Bilder opfern, damit der Abend weiterläuft.
+      list.splice(Math.max(0, list.length - 80));
+      write("album", list);
+      SS.toast("Gerätespeicher fast voll — die ältesten Bilder wurden entfernt.", "err");
+    }
+    SS.emit("album");
+    return list[0];
+  }
+  function photosOf(groupCode) {
+    return album().filter((p) => !groupCode || !p.groupCode || p.groupCode === groupCode);
+  }
+  function photoOf(pid) { return album().filter((p) => p.pid === pid); }
+  function dropPhoto(id) {
+    const list = album().filter((p) => p.id !== id);
+    write("album", list);
+    SS.emit("album");
+  }
+  function clearAlbum() { drop("album"); SS.emit("album"); }
+
   /* ── Aufräumen ────────────────────────────────────────────────────────── */
   function wipe() {
-    ["group", "session", "outbox", "chronicle", "profile"].forEach(drop);
-    SS.emit("outbox"); SS.emit("chronicle");
+    ["group", "session", "outbox", "chronicle", "album", "profile"].forEach(drop);
+    SS.emit("outbox"); SS.emit("chronicle"); SS.emit("album");
   }
 
   /** Wie viel Platz brauchen wir? (localStorage fasst meist ~5 MB) */
@@ -204,6 +236,7 @@
     snapshot, saveSession, loadSession, clearSession,
     outbox, queue, clearOutbox, outboxCount,
     chronicle, addChronicle, chronicleFor, clearChronicle, tally,
+    album, addPhoto, photosOf, photoOf, dropPhoto, clearAlbum,
     wipe, usage,
   };
 })();

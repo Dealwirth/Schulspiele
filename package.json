@@ -1,7 +1,7 @@
 {
   "name": "schulspiele",
   "version": "1.0.0",
-  "description": "",
+  "description": "Seidla — die fränkische Wirtshausrunde: Aufgaben-Abend mit Fotonachweis, Ring-Vernetzung und Sidequests.",
   "main": "build.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -10,7 +10,13 @@
     "type": "git",
     "url": "git+https://github.com/Dealwirth/Schulspiele.git"
   },
-  "keywords": [],
+  "keywords": [
+    "partyspiel",
+    "aufgaben",
+    "foto",
+    "wirtshaus",
+    "franken"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",

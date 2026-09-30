@@ -1,991 +1,809 @@
 /* ==========================================================================
-   Seidla — Oberfläche
-   Startseite, Katalog, Runden-Lobby, Spielansicht, Wirtshaus-Chronik.
+   Seidla — Ansichten
+   Beitreten, Aufgaben, Sidequests, Album und der Wirt-Bereich. Kein
+   Minispielkram: eine Liste Aufgaben pro Person, jede mit Fotonachweis.
    ========================================================================== */
 (function () {
   "use strict";
   const SS = window.SS;
-  const { el, frag } = SS;
+  const $ = SS.$, $$ = SS.$$, el = SS.el;
 
-  const TAGS = {
-    schnell: "Schnell", laut: "Laut", ruhig: "Ruhig", gross: "Große Runde",
-    party: "Party", action: "Action", wissen: "Wissen", wort: "Wort",
-    team: "Team", klassisch: "Klassisch", wettkampf: "Wettkampf", einstieg: "Einstieg",
-  };
-  const PENALTIES = [
-    { key: "flüssig", label: "Flüssig", hint: "Ein Schluck Bier, Radler oder Spezi." },
-    { key: "frech", label: "Frech", hint: "Eine Aufgabe aus der Runde erfüllen." },
-    { key: "wasser", label: "Wasser", hint: "Ein Glas Wasser — für die Vernunft." },
-  ];
-
-  const penalty = () => (SS.store ? SS.store.loadProfile().penalty : "flüssig");
-  const penaltyWord = () => ({ flüssig: "trinkt einen Schluck", frech: "erfüllt eine Aufgabe", wasser: "trinkt ein Glas Wasser" }[penalty()] || "trinkt einen Schluck");
-
-  /* ══ Routenwechsel ══════════════════════════════════════════════════════ */
-  function go(route) {
-    SS.state.route = route;
-    render();
-    window.scrollTo({ top: 0, behavior: SS.LS.get("reducedMotion", false) ? "auto" : "smooth" });
+  /* ── Bausteine ────────────────────────────────────────────────────────── */
+  function btn(label, opts) {
+    opts = opts || {};
+    const attrs = {
+      class: "btn " + (opts.kind === "primary" ? "btn-gold" : opts.kind === "ghost" ? "btn-ghost" : opts.kind === "danger" ? "btn-danger" : "btn-outline") + (opts.cls ? " " + opts.cls : ""),
+      text: label,
+      disabled: opts.disabled || false,
+      onclick: opts.onClick,
+      title: opts.title || null,
+    };
+    if (opts.id) attrs.id = opts.id;
+    return el("button", attrs);
   }
-
-  /* ══ Fokus bewahren ═════════════════════════════════════════════════════ */
-  function captureFocus() {
-    const a = document.activeElement;
-    if (!a || !a.dataset || !a.dataset.persist) return null;
-    return { key: a.dataset.persist, start: a.selectionStart, end: a.selectionEnd };
+  function field(label, input) {
+    return el("label", { class: "field" }, [el("span", { class: "field-label", text: label }), input]);
   }
-  function restoreFocus(snap) {
-    if (!snap) return;
-    const node = document.querySelector('[data-persist="' + snap.key + '"]');
-    if (!node) return;
-    node.focus();
-    if (typeof node.setSelectionRange === "function" && snap.start !== null && snap.start !== undefined) {
-      try { node.setSelectionRange(snap.start, snap.end); } catch (e) {}
-    }
-  }
-
-  /* ══ Zeichnen ═══════════════════════════════════════════════════════════ */
-  function render() {
-    const snap = captureFocus();
-    const view = SS.$("#view");
-    view.innerHTML = "";
-    let node;
-    switch (SS.state.route) {
-      case "catalog": node = viewCatalog(); break;
-      case "lobby": node = viewLobby(); break;
-      case "game": node = viewGame(); break;
-      case "chronik": node = viewChronicle(); break;
-      default: node = viewHome();
-    }
-    view.appendChild(node);
-    renderMechanik();
-    updateStatusbar();
-    restoreFocus(snap);
-  }
-
-  function renderCurrentGame() {
-    if (SS.state.route !== "game") { render(); return; }
-    const snap = captureFocus();
-    const stage = SS.$("#stageHost");
-    if (stage) { stage.innerHTML = ""; stage.appendChild(buildStage()); }
-    renderMechanik();
-    updateStatusbar();
-    restoreFocus(snap);
-  }
-
-  /* ══ Punkte-Leiste ══════════════════════════════════════════════════════ */
-  function renderMechanik() {
-    const bar = SS.$("#mechanik");
-    const active = SS.state.phase === "playing" && SS.state.gameId;
-    if (!active) { bar.hidden = true; bar.innerHTML = ""; return; }
-    bar.hidden = false; bar.innerHTML = "";
-
-    const inner = el("div", { class: "mechanik-inner" });
-    inner.appendChild(el("h4", { text: "Punkte" }));
-    const houses = el("div", { class: "mk-houses" });
-    SS.state.players.slice().sort((a, b) => (SS.state.scores[b.id] || 0) - (SS.state.scores[a.id] || 0)).forEach((p) => {
-      houses.appendChild(el("span", { class: "mk-house", style: { opacity: p.connected === false ? ".45" : "1" } }, [
-        el("span", { class: "avatar", style: { background: p.color }, text: SS.initial(p.name) }),
-        el("span", { text: p.name }),
-        el("span", { class: "pts", text: String(SS.state.scores[p.id] || 0) }),
-      ]));
+  function avatar(p, cls) {
+    return el("span", {
+      class: "avatar " + (cls || ""),
+      style: { background: p.color || "#8a6a1f" },
+      text: SS.initial(p.name),
+      title: p.name,
     });
-    inner.appendChild(houses);
-    inner.appendChild(el("div", { class: "mk-spacer" }));
-    inner.appendChild(el("div", { class: "mk-round" }, [
-      "Runde ", el("strong", { text: String(SS.state.round) }),
-      SS.state.mode === "online" ? el("span", { text: "  ·  Runde " + SS.state.code }) : el("span", { text: "  ·  am Gerät" }),
-    ]));
-    inner.appendChild(el("button", { class: "btn btn-sm btn-gold", text: "Punktestand", onclick: showScoreboard }));
-    bar.appendChild(inner);
   }
+  const pill = (text, kind) => el("span", { class: "pill " + (kind || ""), text: text });
 
-  function showScoreboard() {
-    const order = SS.state.players.slice().sort((a, b) => (SS.state.scores[b.id] || 0) - (SS.state.scores[a.id] || 0));
-    const table = el("table", { class: "scoreboard" }, [
-      el("thead", {}, el("tr", {}, [el("th", { text: "#" }), el("th", { text: "Name" }), el("th", { text: "Punkte" })])),
-      el("tbody", {}, order.map((p, i) => el("tr", { class: i === 0 && (SS.state.scores[p.id] || 0) > 0 ? "lead-row" : "" }, [
-        el("td", {}, el("span", { class: "rank", text: (i + 1) + "." })),
-        el("td", {}, [el("span", { class: "avatar", style: { background: p.color }, text: SS.initial(p.name) }), p.name,
-          p.connected === false ? el("span", { class: "muted", text: "  (weg)" }) : null]),
-        el("td", { class: "num", text: String(SS.state.scores[p.id] || 0) }),
-      ]))),
+  function typeBadge(task) {
+    const t = SS.tasks.typeById(task.type);
+    if (!t) return pill("Aufgabe");
+    return el("span", { class: "type-badge lvl-" + task.level, title: t.hint }, [
+      el("span", { class: "type-glyph", text: t.glyph }),
+      el("span", { text: t.name }),
     ]);
-    SS.modal("Punktestand", frag([table, el("p", { class: "muted", style: { marginTop: "12px" }, text: "Punkte laufen über alle Runden weiter." })]), [{ label: "Weiter", kind: "primary" }]);
   }
 
-  /* ══ Statuszeile ════════════════════════════════════════════════════════ */
-  function updateStatusbar() {
-    const t = SS.$("#statusText"), r = SS.$("#statusRight");
-    if (!t) return;
-    const mode = SS.state.mode === "online" ? "Runde " + (SS.state.code || "—") : "Am selben Gerät";
-    const role = SS.state.role === "host" ? "Wirt" : SS.state.role === "guest" ? "Gast" : "Lokal";
-    t.textContent =
-      SS.state.phase === "playing" ? "Läuft · " + mode
-      : SS.state.phase === "over" ? "Fertig · " + mode
-      : "Bereit · " + mode;
-    const net = SS.state.connection === "online" ? "verbunden" : SS.state.connection === "connecting" ? "verbindet" : "offline";
-    const pend = SS.state.pending || (SS.store && SS.store.outboxCount() > 0);
-    r.textContent = role + " · " + SS.connectedCount() + " Leut · " + net + (pend ? " · Ausgangskorb" : "");
+  /* ── Kopfzeile ────────────────────────────────────────────────────────── */
+  function topbar() {
+    const s = SS.state;
+    const left = el("div", { class: "top-left" }, [
+      el("button", { class: "brand", id: "brandBtn", text: "Seidla" }),
+      el("span", { class: "brand-sub", text: "die fränkische Wirtshausrunde" }),
+    ]);
+    const right = el("div", { class: "top-right" }, [
+      el("span", { class: "net-badge", id: "netBadge", text: s.connection === "online" ? "Verbunden" : "Lokal" }),
+      s.phase !== "lobby" ? btn("Aufgaben", { kind: "ghost", cls: "tiny", onClick: () => go("tasks") }) : null,
+      s.phase !== "lobby" ? btn("Album", { kind: "ghost", cls: "tiny", onClick: () => go("album") }) : null,
+      btn("Wirt", { kind: "ghost", cls: "tiny", id: "wirtBtn", onClick: openWirtGate }),
+    ]);
+    const bar = el("header", { class: "topbar" }, [left, right]);
+    bar.appendChild(el("div", { class: "outbox-bar", id: "outboxBar", hidden: true }));
+    return bar;
   }
 
-  /* ══ Startseite ═════════════════════════════════════════════════════════ */
+  /* ── Startseite ───────────────────────────────────────────────────────── */
   function viewHome() {
-    const prof = SS.store ? SS.store.loadProfile() : { name: "", penalty: "flüssig" };
-    const wrap = el("div");
-
-    wrap.appendChild(el("section", { class: "hero" }, [
-      el("div", { class: "hero-main" }, [
-        el("div", { class: "eyebrow", text: "Für den Samstagabend, den Stammtisch und die ganze Wirtshausrunde" }),
+    const s = SS.state;
+    const g = SS.store ? SS.store.loadGroup() : null;
+    const body = el("div", { class: "wrap" }, [
+      el("section", { class: "hero" }, [
         el("h1", { text: "A Seidla geht immer." }),
-        el("p", { class: "lead", text: "Die fränkische Wirtshausrunde für 2 bis 100 Leut. Ein Gerät macht die Runde auf und zeigt einen Code, alle anderen tippen ihn ein — iPhone, iPad, Android, Laptop, alles durcheinander. Keine Anmeldung, keine Werbung, kein Download." }),
-        el("div", { class: "btn-row", style: { marginTop: "18px" } }, [
-          el("button", { class: "btn btn-gold btn-lg", text: "Runde aufmachen", onclick: openCreateDialog }),
-          el("button", { class: "btn btn-outline btn-lg", text: "Mit Code nei", onclick: () => openJoinDialog() }),
-          el("button", { class: "btn btn-ghost btn-lg", text: "Am selben Gerät", onclick: () => startLocalFlow() }),
+        el("p", { class: "lead", text: "Ein Abend, eine Runde, jeder kriegt seine Aufgaben. Beweis ist ein Foto — und die Aufgaben hängen alle aneinander, damit niemand am Rand steht." }),
+        el("div", { class: "hero-actions" }, [
+          btn("Runde aufmachen", { kind: "primary", onClick: openCreate }),
+          btn("Beitreten", { onClick: openJoin }),
+        ]),
+        g && g.code ? el("p", { class: "muted small", text: "Letzte Runde: " + (g.name || "Wirtshausrunde") + " (" + g.code + ")" }) : null,
+      ]),
+
+      el("section", { class: "cards" }, [
+        card("So läuft's", [
+          "Der Wirt macht eine Runde auf und bekommt einen Code.",
+          "Alle treten mit dem Code bei — Name bleibt gespeichert.",
+          "Der Wirt wählt Aufgabentypen und teilt aus: 5 bis 10 pro Person.",
+          "Jeder erledigt seine Aufgaben und weist sie mit einem Foto nach.",
+          "Wer wen besuchen muss, steht in der Aufgabe — so redet die ganze Runde miteinander.",
+        ]),
+        card("Sidequests", [
+          "Extra-Aufgaben, die die Runde selbst vorschlägt.",
+          "Der Wirt gibt frei, was in Ordnung geht.",
+          "Dann zieht eine zufällige Person die Sidequest.",
+          "Sie ist freiwillig — wer mitmacht, kassiert Extrapunkte.",
+        ]),
+        card("Ohne Netz", [
+          "Fällt das Internet aus, geht's am Gerät weiter.",
+          "Nachweise wandern in den Ausgangskorb.",
+          "Sobald wieder Netz da ist, geht alles von selbst raus.",
+          "Der Wirt sieht danach, was in der Zwischenzeit passiert ist.",
         ]),
       ]),
-      el("div", { class: "hero-side" }, [
-        stat("1", "Runde aufmachen", "Der Wirt öffnet die Runde. Der Code steht groß auf dem Schirm."),
-        stat("2", "Alle tippen den Code ein", "Name wählen, fertig. Bis zu 100 Geräte in einer Runde."),
-        stat(SS.GAMES.length + "", "Spiele bereit", "Von «Ich hab noch nie» bis Turnierbaum und Franken-Quiz."),
-      ]),
-    ]));
-
-    // Offline-Banner, wenn was im Ausgangskorb liegt
-    const ob = SS.store ? SS.store.outboxCount() : 0;
-    if (ob > 0 || (SS.state.pending && SS.state.role === "guest")) {
-      wrap.appendChild(el("div", { class: "sync-strip" }, [
-        el("span", { class: "count", text: String(ob) }),
-        el("span", {}, [el("strong", { text: "Einträge im Ausgangskorb. " }), "Die gehen raus, sobald wieder Netz da is."]),
-        el("button", { class: "btn btn-sm btn-outline", text: "Jetzt versuchen", onclick: () => { SS.net.flushOutbox(); render(); } }),
-      ]));
-    }
-
-    // Fortsetzen
-    if (SS.state.lastSession) {
-      const s = SS.state.lastSession;
-      const meta = SS.getMeta(s.gameId);
-      wrap.appendChild(el("div", { class: "card", style: { marginBottom: "18px" } }, [
-        el("div", { class: "eyebrow", text: "Da war doch was" }),
-        el("h3", { text: "Letzte Runde fortsetzen" }),
-        el("p", { class: "muted", text: (meta ? meta.name : s.gameId) + " · Runde " + s.round + " · " + (s.players || []).length + " Leut · " + fmtWhen(s.at) }),
-        el("div", { class: "btn-row" }, [
-          el("button", { class: "btn btn-gold", text: "Fortsetzen", onclick: () => resumeSession(s) }),
-          el("button", { class: "btn btn-outline", text: "Verwerfen", onclick: () => { SS.store.clearSession(); SS.state.lastSession = null; render(); } }),
-        ]),
-      ]));
-    }
-
-    // Person & Strafen-Modus
-    const nameCard = el("div", { class: "card" }, [
-      el("h3", { text: "Erst kurz der Name" }),
-      el("p", { class: "muted", text: "Der Name steht bei den anderen in der Runde." }),
-      el("label", { class: "field", style: { maxWidth: "380px" } }, [
-        el("span", { text: "Dein Name" }),
-        el("input", { type: "text", placeholder: "z. B. Sepp, Resi, Kalle …", value: prof.name, maxlength: "22",
-          dataset: { persist: "homeName" }, oninput: (e) => { SS.store.saveProfile({ name: e.target.value }); SS.LS.set("name", e.target.value); } }),
-      ]),
-      el("div", { class: "eyebrow", style: { marginTop: "6px" }, text: "Was passiert bei einer Strafe?" }),
-      el("div", { class: "btn-row" }, PENALTIES.map((p) =>
-        el("button", { class: "btn btn-sm " + (prof.penalty === p.key ? "btn-gold" : "btn-outline"), text: p.label,
-          onclick: () => { SS.store.saveProfile({ penalty: p.key }); render(); } })
-      )),
-      el("p", { class: "muted", style: { marginTop: "8px" }, text: (PENALTIES.find((p) => p.key === prof.penalty) || PENALTIES[0]).hint }),
     ]);
-    wrap.appendChild(nameCard);
-
-    // Katalog
-    wrap.appendChild(el("div", { style: { marginTop: "26px" } }, [
-      el("div", { class: "eyebrow", text: "Spiele" }),
-      el("h2", { text: "Was spiel ma heut?" }),
-      el("p", { class: "lead", text: "Klassiker zum Einstieg, Action für zwischendurch und ein paar Sachen für die ganze Runde. Läuft alles im Browser." }),
-      el("div", { class: "grid", style: { marginTop: "16px" } }, SS.GAMES.slice(0, 6).map(gameCard)),
-      el("div", { class: "btn-row", style: { marginTop: "18px" } }, [
-        el("button", { class: "btn btn-outline", text: "Alle " + SS.GAMES.length + " Spiele", onclick: () => go("catalog") }),
-        el("button", { class: "btn btn-ghost", text: "Wirtshaus-Chronik", onclick: () => go("chronik") }),
-      ]),
-    ]));
-
-    wrap.appendChild(el("div", { class: "footnote" }, [
-      el("strong", { text: "Wegen dem Netz. " }),
-      "Eine Runde verbindet die Geräte direkt über WebRTC; dafür braucht's einmalig einen Vermittlungsdienst im Internet. Fällt das Netz aus, spielt's trotzdem weiter — was passiert is, wandert in den Ausgangskorb und wird später nachgereicht. Reines Bluetooth zwischen iPhone und Android geht im Browser leider ned, dazu bräucht's a App.",
-    ]));
-
-    return wrap;
+    return el("div", { class: "view view-home" }, [topbar(), body, footer()]);
   }
 
-  function stat(big, title, text) {
-    return el("div", { class: "stat-card" }, [
-      el("div", { class: "big", text: big }),
-      el("div", {}, [el("h3", { text: title }), el("p", { text: text })]),
+  function card(title, lines) {
+    return el("article", { class: "card" }, [
+      el("h3", { text: title }),
+      el("ul", {}, lines.map((l) => el("li", { text: l }))),
+    ]);
+  }
+  function footer() {
+    return el("footer", { class: "foot" }, [
+      el("span", { text: "Für Erwachsene gedacht. Kein Konto, keine Werbung, keine Daten auf fremden Servern." }),
     ]);
   }
 
-  function fmtWhen(ts) {
-    if (!ts) return "";
-    const d = new Date(ts);
-    return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + ", " + d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-  }
-
-  function resumeSession(s) {
-    SS.state.gameId = s.gameId;
-    SS.state.settings = s.settings || {};
-    SS.state.round = s.round || 1;
-    SS.state.players = s.players || SS.state.players;
-    SS.state.scores = s.scores || {};
-    SS.state.pub = s.pub || {};
-    SS.state.phase = "playing";
-    SS.state.lastSession = null;
-    SS.state.mode = "local";
-    SS.state.role = "solo";
-    SS.net.setStatus("offline");
-    go("game");
-  }
-
-  /* ══ Katalog ════════════════════════════════════════════════════════════ */
-  let catalogFilter = { tag: "alle", q: "" };
-
-  function viewCatalog() {
-    const tags = ["alle", "einstieg", "party", "action", "wissen", "wort", "team", "wettkampf", "ruhig"];
-    const chips = tags.map((t) => el("button", {
-      class: "chip", "aria-pressed": catalogFilter.tag === t ? "true" : "false",
-      text: t === "alle" ? "Alle" : TAGS[t] || t,
-      onclick: () => { catalogFilter.tag = t; render(); },
-    }));
-    const search = el("input", { class: "search", type: "search", placeholder: "Suchen …", value: catalogFilter.q,
-      dataset: { persist: "search" }, oninput: (e) => { catalogFilter.q = e.target.value.toLowerCase(); softFilter(); } });
-    const listHost = el("div", { class: "grid", id: "catalogGrid" });
-    fillCatalog(listHost);
-    return el("div", {}, [
-      el("div", { class: "eyebrow", text: "Katalog" }),
-      el("h1", { text: "Alle Spiele" }),
-      el("p", { class: "lead", text: "Wähle ein Spiel. Danach legst du fest, ob's online in der Runde oder am selben Gerät läuft." }),
-      el("div", { class: "filters" }, [chips, search]),
-      listHost,
-    ]);
-  }
-
-  function fillCatalog(host) {
-    host.innerHTML = "";
-    const q = catalogFilter.q, tag = catalogFilter.tag;
-    const list = SS.GAMES.filter((g) => {
-      if (tag !== "alle" && !(g.tags || []).includes(tag)) return false;
-      if (q && !((g.name + " " + g.tagline + " " + (g.tags || []).map((t) => TAGS[t] || t).join(" ")).toLowerCase().includes(q))) return false;
-      return true;
-    });
-    if (!list.length) { host.appendChild(el("div", { class: "card center muted", text: "Nix passt zu der Auswahl." })); return; }
-    list.forEach((g) => host.appendChild(gameCard(g)));
-  }
-  function softFilter() { const grid = SS.$("#catalogGrid"); if (grid) fillCatalog(grid); }
-
-  function gameCard(g) {
-    return el("button", { class: "game-card", onclick: () => openGame(g.id) }, [
-      el("div", { class: "thumb", style: { "--accent": g.accent || "#3a5f86" } }, [
-        el("span", { class: "glyph", text: g.glyph || "★" }),
-        el("span", { class: "n", text: (g.minP || 2) + "–" + (g.maxP || 100) + " Leut" }),
-      ]),
-      el("div", { class: "body" }, [
-        el("h3", { text: g.name }),
-        el("p", { text: g.tagline }),
-        el("div", { class: "tags" }, (g.tags || []).map((t) => el("span", { class: "tag", text: TAGS[t] || t }))),
-        el("div", { class: "meta" }, [el("span", { text: g.duration || "" }), el("span", { text: "Regeln →" })]),
-      ]),
-    ]);
-  }
-
-  /* ══ Runden-Lobby ═══════════════════════════════════════════════════════ */
-  function viewLobby() {
-    const isHost = SS.isHost();
-    const guestView = SS.state.mode === "online" && !isHost;
-    const wrap = el("div");
-
-    wrap.appendChild(el("div", { class: "eyebrow", text: isHost ? "Runde offen" : guestView ? "Du bist dabei" : "Am selben Gerät" }));
-    wrap.appendChild(el("h1", { text: SS.state.mode === "online" ? (isHost ? "Wer kommt alles mit?" : "Du bist dabei") : "Wer spielt mit?" }));
-
-    const pend = SS.store ? SS.store.outboxCount() : 0;
-    if (pend > 0 || SS.state.connection === "lost") {
-      wrap.appendChild(el("div", { class: "sync-strip" }, [
-        el("span", { class: "count", text: String(pend) }),
-        el("span", {}, [el("strong", { text: SS.state.connection === "lost" ? "Kein Kontakt zur Runde. " : "Ausgangskorb: " }),
-          SS.state.connection === "lost" ? "Es geht am Gerät weiter — nachgereicht wird, sobald's wieder geht." : "Wird nachgereicht, sobald Netz da is."]),
-        el("button", { class: "btn btn-sm btn-outline", text: "Jetzt versuchen", onclick: () => { SS.net.flushOutbox(); render(); } }),
-      ]));
-    }
-
-    const grid = el("div", { class: "lobby-grid" });
-    const codeChip = el("div", { class: "code-chip" }, [
-      el("div", {}, [el("div", { class: "eyebrow", style: { marginBottom: "2px" }, text: "Rundencode" }), el("div", { class: "val", text: SS.state.code || "----" })]),
-      el("button", { class: "btn btn-sm btn-gold", text: "Code kopieren", onclick: () => copy(SS.state.code, "Code kopiert") }),
-    ]);
-    const link = location.origin + location.pathname + "?code=" + (SS.state.code || "");
-    const joinBox = el("div", {}, [
-      el("p", { class: "muted", style: { marginTop: "12px" }, text: "Diesen Link kannst in die Gruppe schicken — er füllt den Code auf den anderen Geräten von allein aus." }),
-      el("div", { class: "join-link", text: link }),
-      el("div", { class: "btn-row", style: { marginTop: "10px" } }, [
-        el("button", { class: "btn btn-sm btn-outline", text: "Link kopieren", onclick: () => copy(link, "Link kopiert") }),
-      ]),
-    ]);
-
-    const left = SS.state.mode === "online"
-      ? el("div", { class: "card" }, [
-          el("h3", { text: "Wie kommt ma nei" }),
-          codeChip, joinBox,
-          el("hr", { class: "rule" }),
-          el("ol", { class: "net-steps" }, [
-            li("num", "1", "Der Code oben wird auf den anderen Geräten unter «Mit Code nei» eingetippt."),
-            li("num", "2", "Kurz Internet zum Beitreten, danach reden die Geräte direkt miteinander."),
-            li("num", "3", isHost ? "Du wählst unten das Spiel und startest." : "Der Wirt wählt das Spiel und startet."),
-          ]),
-        ])
-      : el("div", { class: "card" }, [
-          el("h3", { text: "Ein Gerät, alle dran" }),
-          el("p", { class: "lead", text: "Ihr spielt nacheinander an diesem Schirm. Trag unten alle ein, die mitspielen." }),
-          el("div", { class: "btn-row" }, [
-            el("button", { class: "btn btn-gold", text: "Person dazu", onclick: addLocalPlayerDialog }),
-            el("button", { class: "btn btn-outline", text: "In der Runde spielen", onclick: openCreateDialog }),
-          ]),
-          el("hr", { class: "rule" }),
-          el("div", { class: "banner", text: "Tipp: Unter «Punktestand» siehst jederzeit, wer führt. Punkte laufen über alle Runden weiter." }),
-        ]);
-
-    const plist = el("ul", { class: "player-list" });
-    SS.state.players.forEach((p) => {
-      const badges = [];
-      if (p.id === SS.state.hostId) badges.push(el("span", { class: "badge host", text: "Wirt" }));
-      if (SS.state.mode === "online" && p.id === SS.state.me) badges.push(el("span", { class: "badge you", text: "Du" }));
-      if (p.connected === false) badges.push(el("span", { class: "badge gone", text: "weg" }));
-      plist.appendChild(el("li", {}, [
-        el("span", { class: "avatar", style: { background: p.color }, text: SS.initial(p.name) }),
-        el("span", { class: "nm", text: p.name }), badges,
-      ]));
-    });
-
-    const right = el("div", { class: "card" }, [
-      el("h3", { text: "In der Runde (" + SS.connectedCount() + ")" }),
-      el("p", { class: "muted", text: SS.state.mode === "online" ? "Bis zu 100 Geräte. Neue Beitritte tauchen von allein auf." : "Am selben Gerät wird abwechselnd gespielt." }),
-      plist,
-      el("hr", { class: "rule" }),
-      el("div", { class: "btn-row" }, [
-        el("button", { class: "btn btn-sm btn-outline", text: "Namen dazu", onclick: addLocalPlayerDialog }),
-        SS.state.mode === "online" && isHost ? el("button", { class: "btn btn-sm btn-outline", text: "Runde schließen", onclick: () => { SS.net.leave(); toHome(); } }) : null,
-        guestView ? el("button", { class: "btn btn-sm btn-outline", text: "Runde verlassen", onclick: () => { SS.net.leave(); toHome(); } }) : null,
-      ]),
-    ]);
-
-    grid.appendChild(left); grid.appendChild(right);
-    wrap.appendChild(grid);
-
-    // Spielwahl
-    const picker = el("div", { class: "card", style: { marginTop: "18px" } });
-    if (isHost) {
-      picker.appendChild(el("h3", { text: "Spiel wählen" }));
-      picker.appendChild(el("div", { class: "grid" }, SS.GAMES.map((g) =>
-        el("button", { class: "game-card", style: SS.state.gameId === g.id ? { boxShadow: "0 0 0 3px var(--gold), var(--shadow)" } : null,
-          onclick: () => { selectGame(g.id); render(); } }, [
-          el("div", { class: "thumb", style: { "--accent": g.accent || "#3a5f86", height: "58px" } }, [
-            el("span", { class: "glyph", text: g.glyph }), el("span", { class: "n", text: g.name }),
-          ]),
-        ])
-      )));
-      const meta = SS.getMeta(SS.state.gameId);
-      if (meta) {
-        picker.appendChild(el("hr", { class: "rule" }));
-        picker.appendChild(el("h3", { text: "Einstellungen · " + meta.name }));
-        picker.appendChild(el("p", { class: "muted", text: meta.tagline }));
-        picker.appendChild(settingsForm(meta));
-        picker.appendChild(el("div", { class: "banner", text: "Regeln: " + meta.rules }));
-      }
-    } else {
-      const meta = SS.getMeta(SS.state.gameId);
-      picker.appendChild(el("h3", { text: "Gewähltes Spiel" }));
-      picker.appendChild(el("p", { class: "lead", text: meta ? meta.glyph + "  " + meta.name + " — " + meta.tagline : "Der Wirt wählt grad a Spiel." }));
-      if (meta) picker.appendChild(el("div", { class: "banner", text: "Regeln: " + meta.rules }));
-    }
-    wrap.appendChild(picker);
-
-    if (isHost) {
-      const enough = SS.connectedCount() >= (SS.getMeta(SS.state.gameId) || { minP: 2 }).minP;
-      wrap.appendChild(el("div", { class: "card center", style: { marginTop: "18px" } }, [
-        SS.state.gameId
-          ? el("button", { class: "btn btn-gold btn-lg", disabled: !enough, text: "Los geht's", onclick: startGame })
-          : el("p", { class: "muted", text: "Wähle zuerst oben a Spiel." }),
-        !enough && SS.state.gameId ? el("p", { class: "muted", style: { marginTop: "10px" }, text: "Für das Spiel braucht's mindestens " + SS.getMeta(SS.state.gameId).minP + " Leut." }) : null,
-      ]));
-    } else {
-      wrap.appendChild(el("div", { class: "banner green", style: { marginTop: "18px" }, text: "Alles bereit. Sobald der Wirt startet, geht's von allein los." }));
-    }
-    return wrap;
-  }
-
-  function li(cls, num, text) { return el("li", {}, [el("span", { class: cls, text: num }), el("span", { text: text })]); }
-
-  function settingsForm(meta) {
-    const box = el("div");
-    const defs = meta.settings || [];
-    if (!defs.length) { box.appendChild(el("p", { class: "muted", text: "Für das Spiel braucht's keine Einstellungen." })); return box; }
-    const row = el("div", { class: "inline-form" });
-    defs.forEach((d) => {
-      const cur = SS.state.settings[d.key] !== undefined ? SS.state.settings[d.key] : d.default;
-      let input;
-      if (d.type === "select") {
-        input = el("select", { onchange: (e) => setSetting(d.key, e.target.value) },
-          (d.options || []).map((o) => el("option", { value: o.value, selected: String(cur) === String(o.value) ? true : null, text: o.label })));
-      } else if (d.type === "number") {
-        input = el("input", { type: "number", min: d.min, max: d.max, value: cur, onchange: (e) => setSetting(d.key, Number(e.target.value)) });
-      } else {
-        input = el("select", { onchange: (e) => setSetting(d.key, e.target.value === "true") }, [
-          el("option", { value: "true", selected: cur === true || cur === "true" ? true : null, text: "Ja" }),
-          el("option", { value: "false", selected: cur === false || cur === "false" ? true : null, text: "Nein" }),
-        ]);
-      }
-      row.appendChild(el("label", { class: "field" }, [el("span", { text: d.label }), input]));
-    });
-    box.appendChild(row);
-    return box;
-  }
-
-  function setSetting(key, value) {
-    SS.state.settings[key] = value;
-    SS.LS.set("settings:" + SS.state.gameId, SS.state.settings);
-    if (SS.isHost()) SS.sync();
-  }
-
-  function selectGame(id) {
-    SS.state.gameId = id;
-    SS.state.settings = SS.LS.get("settings:" + id, {});
-    const meta = SS.getMeta(id);
-    (meta.settings || []).forEach((d) => { if (SS.state.settings[d.key] === undefined) SS.state.settings[d.key] = d.default; });
-    if (SS.isHost()) SS.sync();
-  }
-
-  /* ══ Spielansicht ═══════════════════════════════════════════════════════ */
-  function viewGame() {
-    const meta = SS.getMeta(SS.state.gameId) || { name: "Spiel", glyph: "★", tagline: "" };
-    const head = el("div", { class: "game-head" }, [
-      el("div", { class: "icon", text: meta.glyph || "★" }),
-      el("div", { class: "titles" }, [
-        el("h1", { text: meta.name }),
-        el("p", { class: "sub", text: meta.tagline + (SS.state.mode === "online" ? "  ·  Runde " + SS.state.code : "  ·  am Gerät") }),
-      ]),
-      el("div", { class: "btn-row" }, [
-        el("button", { class: "btn btn-sm btn-outline", text: "Regeln", onclick: () => rulesDialog(meta) }),
-        SS.isHost() ? el("button", { class: "btn btn-sm btn-outline", text: "Neue Runde", onclick: restartGame }) : null,
-        el("button", { class: "btn btn-sm btn-outline", text: "Verlassen", onclick: leaveGame }),
-      ]),
-    ]);
-    const seatBar = seatSwitcher();
-    const stage = el("div", { class: "stage", id: "stageHost" }, buildStage());
-    return frag([head, seatBar, stage]);
-  }
-
-  /** Lokaler Modus, gleichzeitige Spiele: wer hält grad das Gerät? */
-  function seatSwitcher() {
-    if (SS.state.mode !== "local" || !SS.isSimultaneous() || SS.state.phase !== "playing") return null;
-    return el("div", { class: "card seat-switcher", style: { marginBottom: "16px", padding: "14px 16px" } }, [
-      el("div", { class: "eyebrow", text: "Wer hält grad das Gerät?" }),
-      el("div", { class: "btn-row" }, SS.state.players.map((p) =>
-        el("button", { class: "btn btn-sm " + (SS.state.seat === p.id ? "btn-gold active" : "btn-outline"), text: p.name,
-          onclick: () => { SS.state.seat = p.id; renderCurrentGame(); } })
-      )),
-      el("p", { class: "muted", style: { margin: "8px 0 0", fontSize: "13px" }, text: "Tippt euren Namen an, bevor ihr antwortet. So landen die Punkte im richtigen Haus." }),
-    ]);
-  }
-
-  function buildStage() {
-    const impl = SS.IMPL[SS.state.gameId];
-    if (!impl) return el("p", { class: "muted", text: "Das Spiel is ned geladen." });
-    const ctx = SS.makeCtx();
-    // Partie vorbei: Endstand mit Auswertung zeigen.
-    if (SS.state.phase === "over") {
-      const title = (SS.state.lastResult && SS.state.lastResult.title) || "Endstand";
-      try { return SS.util.finalScreen(ctx, title, "Gut Schluck — und bis zum nächsten Mal."); }
-      catch (e) { console.error(e); return el("div", { class: "banner red", text: "Fehler beim Endstand: " + e.message }); }
-    }
-    if (SS.state.phase === "playing" && SS.state.pub && SS.state.pub.game && SS.state.pub.game !== SS.state.gameId) {
-      return el("div", { class: "center muted", style: { padding: "40px 0" }, text: "Die Runde wird vorbereitet …" });
-    }
-    try { return impl.render(ctx) || el("div"); }
-    catch (e) { console.error(e); return el("div", { class: "banner red", text: "Fehler beim Zeichnen: " + e.message }); }
-  }
-
-  /* ══ Chronik ════════════════════════════════════════════════════════════ */
-  function viewChronicle() {
-    const entries = SS.store ? SS.store.chronicle() : [];
-    const tally = SS.store ? SS.store.tally() : [];
-    const wrap = el("div");
-    wrap.appendChild(el("div", { class: "eyebrow", text: "Wirtshausbuch" }));
-    wrap.appendChild(el("h1", { text: "Chronik" }));
-    wrap.appendChild(el("p", { class: "lead", text: "Was im Wirtshaus halt so passiert. Bleibt im Gerät stehen — auch die Zeit, in der kein Netz da war." }));
-
-    const usage = SS.store ? SS.store.usage() : { kb: 0 };
-    const ob = SS.store ? SS.store.outboxCount() : 0;
-    wrap.appendChild(el("div", { class: "sync-strip" }, [
-      el("span", {}, [el("strong", { text: entries.length + " Einträge " }), "· " + usage.kb + " kB belegt"]),
-      ob ? el("span", {}, [el("strong", { text: ob + " im Ausgangskorb" })]) : el("span", { class: "muted", text: "Ausgangskorb leer" }),
-      el("button", { class: "btn btn-sm btn-outline", text: "Ausgangskorb leeren", onclick: () => { SS.store.clearOutbox(); SS.state.pending = false; render(); } }),
-      el("button", { class: "btn btn-sm btn-outline", text: "Chronik leeren", onclick: confirmWipeChronicle }),
-    ]));
-
-    if (tally.length) {
-      wrap.appendChild(el("div", { class: "card", style: { marginBottom: "18px" } }, [
-        el("h3", { text: "Wer war am fleißigsten" }),
-        el("table", { class: "scoreboard" }, [
-          el("thead", {}, el("tr", {}, [el("th", { text: "#" }), el("th", { text: "Name" }), el("th", { text: "Siege" }), el("th", { text: "Schlucke" }), el("th", { text: "Punkte" })])),
-          el("tbody", {}, tally.slice(0, 20).map((t, i) => el("tr", { class: i === 0 ? "lead-row" : "" }, [
-            el("td", {}, el("span", { class: "rank", text: (i + 1) + "." })),
-            el("td", { text: t.name }),
-            el("td", { class: "num", text: String(t.wins) }),
-            el("td", { class: "num", text: String(t.drinks) }),
-            el("td", { class: "num", text: String(t.points) }),
-          ]))),
-        ]),
-      ]));
-    }
-
-    if (!entries.length) {
-      wrap.appendChild(el("div", { class: "card center muted", text: "Noch nix drin. Spielt a Runde, dann füllt sich das Buch." }));
-    } else {
-      const ul = el("ul", { class: "chronicle" });
-      entries.slice(0, 200).forEach((e) => {
-        ul.appendChild(el("li", {}, [
-          el("span", { class: "when", text: fmtWhen(e.at) }),
-          el("span", { class: "what" }, [
-            el("span", { class: "who", text: e.who || "Runde" }), " ",
-            e.type === "sieg" ? "hat gewonnen" : e.type === "schluck" ? "hat einen Schluck kassiert" : "hat eine Runde gespielt",
-            e.game ? " · " + e.game : "",
-            e.offline ? " · offline nachgreicht" : "",
-          ]),
-          el("span", { class: "tag-mini", text: e.type || "runde" }),
-        ]));
-      });
-      wrap.appendChild(el("div", { class: "card" }, ul));
-    }
-    return wrap;
-  }
-
-  function confirmWipeChronicle() {
-    SS.modal("Chronik leeren?", frag([el("p", { text: "Alles, was im Buch steht, wird gelöscht. Des kommt nimmer zurück." })]), [
-      { label: "Behalten" },
-      { label: "Leeren", kind: "primary", onClick: () => { SS.store.clearChronicle(); render(); return true; } },
-    ]);
-  }
-
-  /* ══ Wirt-Bereich ═══════════════════════════════════════════════════════ */
-  /**
-   * Zugang für die Person, die den Abend leitet: Runde verwalten, Leut
-   * entfernen, Punkte zurücksetzen und am Ende den Abendbericht zusammenstellen.
-   *
-   * Ehrlicher Hinweis: Das ist ein Wirtshaus-Schlüssel, kein Banktresor. Die
-   * Seite läuft ohne Server im Browser, also kann jeder, der sich auskennt,
-   * den Schlüssel im Quelltext finden. Er hält die Runde davon ab, versehentlich
-   * im Management herumzupfuschen — mehr soll er nicht.
-   */
-  const WIRT_KEY = "135LowLap";
-
-  const isWirt = () => !!(SS.store && SS.store.loadProfile().wirt);
-  const isWirtHost = () => isWirt() && SS.isHost();
-
-  function openWirtDialog() {
-    if (isWirt()) return wirtPanel();
-    const input = el("input", { type: "password", placeholder: "Wirtsschlüssel", dataset: { persist: "wirtKey" }, autocomplete: "off" });
-    SS.modal("Wirt-Bereich", frag([
-      el("p", { class: "lead", text: "Der Wirt leitet den Abend: Runde verwalten, Leut entfernen, Punkte zurücksetzen und am Schluss den Bericht zusammenstellen." }),
-      el("label", { class: "field" }, [el("span", { text: "Wirtsschlüssel" }), input]),
-      el("div", { class: "banner", text: "Der Schlüssel steht im Quelltext — er hält nur davon ab, versehentlich im Management zu landen." }),
-    ]), [
-      { label: "Abbrechen" },
-      { label: "Aufsperren", kind: "primary", onClick: () => {
-          if ((input.value || "").trim() !== WIRT_KEY) { SS.toast("Des is ned der Schlüssel.", "err"); return false; }
-          SS.store.saveProfile({ wirt: true });
-          SS.toast("Wirt-Bereich offen.", "ok");
-          setTimeout(wirtPanel, 60);
-          return true;
-        } },
-    ]);
-    setTimeout(() => input.focus(), 60);
-  }
-
-  function wirtPanel() {
-    const grp = SS.store.loadGroup() || {};
-    const nameInput = el("input", { type: "text", value: grp.name || "Wirtshausrunde", maxlength: "30", dataset: { persist: "grpName" } });
-    const body = frag([
-      el("p", { class: "lead", text: "Runde: " + (SS.state.code || grp.code || "am selben Gerät") + " · " + SS.connectedCount() + " Leut dabei" }),
-      el("label", { class: "field" }, [el("span", { text: "Name der Runde" }), nameInput]),
-      el("div", { class: "btn-row" }, [
-        el("button", { class: "btn btn-sm btn-gold", text: "Namen speichern", onclick: () => {
-          const n = (nameInput.value || "").trim() || "Wirtshausrunde";
-          const g = SS.store.loadGroup();
-          if (g) SS.store.saveGroup(Object.assign({}, g, { name: n }));
-          SS.toast("Runde heißt jetzt «" + n + "».", "ok");
-        } }),
-        el("button", { class: "btn btn-sm btn-outline", text: "Punkte zurücksetzen", onclick: resetScores }),
-        el("button", { class: "btn btn-sm btn-outline", text: "Teilnehmer verwalten", onclick: managePlayers }),
-      ]),
-      el("hr", { class: "rule" }),
-      el("h3", { text: "Abendbericht" }),
-      el("p", { class: "muted", text: "Fasst die ganze Nacht zusammen: wer dabei war, wer gewonnen hat, wer wie oft einen Schluck kassiert hat. Zum Kopieren und in die Gruppe schicken." }),
-      el("div", { class: "btn-row" }, [
-        el("button", { class: "btn btn-gold", text: "Bericht kopieren", onclick: () => copy(buildReport(), "Bericht kopiert") }),
-        el("button", { class: "btn btn-outline", text: "Vorschau", onclick: () => SS.modal("Abendbericht", frag([
-          el("textarea", { readonly: true, style: { minHeight: "300px" }, value: buildReport() }),
-        ]), [{ label: "Zumachen", kind: "primary" }]) }),
-      ]),
-      el("hr", { class: "rule" }),
-      el("div", { class: "btn-row" }, [
-        el("button", { class: "btn btn-sm btn-outline", text: "Wirt-Bereich sperren", onclick: () => { SS.store.saveProfile({ wirt: false }); SS.toast("Wirt-Bereich gesperrt."); } }),
-        el("button", { class: "btn btn-sm btn-outline", text: "Alles zurücksetzen", onclick: confirmWipeAll }),
-      ]),
-      el("p", { class: "muted", style: { marginTop: "10px", fontSize: "13px" }, text: "Belegt: " + SS.store.usage().kb + " kB im Gerät · Chronik: " + SS.store.chronicle().length + " Einträge" }),
-    ]);
-    SS.modal("Wirt-Bereich", body, [{ label: "Fertig", kind: "primary" }]);
-  }
-
-  function resetScores() {
-    SS.modal("Punkte zurücksetzen?", frag([el("p", { text: "Alle Punkte gehen auf null. Die Chronik bleibt stehen." })]), [
-      { label: "Abbrechen" },
-      { label: "Zurücksetzen", kind: "primary", onClick: () => {
-          Object.keys(SS.state.scores).forEach((k) => (SS.state.scores[k] = 0));
-          if (SS.isHost()) SS.sync();
-          render(); return true;
-        } },
-    ]);
-  }
-
-  function managePlayers() {
-    const list = el("div");
-    if (!SS.state.players.length) list.appendChild(el("p", { class: "muted", text: "Keine Teilnehmer eingetragen." }));
-    SS.state.players.forEach((p) => {
-      list.appendChild(el("div", { class: "btn-row", style: { marginBottom: "8px", justifyContent: "space-between" } }, [
-        el("span", {}, [el("span", { class: "avatar", style: { background: p.color }, text: SS.initial(p.name) }), " " + p.name + (p.connected === false ? " (weg)" : "")]),
-        el("button", { class: "btn btn-sm btn-outline", text: "Entfernen", onclick: () => {
-          if (SS.state.mode === "online" && SS.isHost()) SS.net.sendTo(p.id, { t: "kick", reason: "Der Wirt hat dich aus der Runde genommen." });
-          SS.removePlayer(p.id);
-          if (SS.isHost()) SS.sync();
-          SS.modal("Teilnehmer verwalten", frag([manageList()]), [{ label: "Fertig", kind: "primary" }]);
-          return true;
-        } }),
-      ]));
-    });
-    SS.modal("Teilnehmer verwalten", list, [{ label: "Fertig", kind: "primary" }]);
-  }
-  function manageList() {
-    const d = el("div");
-    SS.state.players.forEach((p) => d.appendChild(el("p", { text: p.name + (p.connected === false ? " (weg)" : "") })));
-    return d;
-  }
-
-  /** Der Abendbericht — alles aus der Chronik, menschenlesbar zusammengefasst. */
-  function buildReport() {
-    const grp = SS.store.loadGroup() || {};
-    const entries = SS.store.chronicle();
-    const t = SS.store.tally();
-    const L = [];
-    L.push("SEIDLA — Abendbericht");
-    L.push("Runde: " + (grp.name || "Wirtshausrunde") + (grp.code ? " (" + grp.code + ")" : ""));
-    L.push("Stand: " + new Date().toLocaleString("de-DE"));
-    L.push("Einträge: " + entries.length);
-    L.push("");
-    if (t.length) {
-      L.push("WER WAR AM FLEISSIGSTEN");
-      t.slice(0, 15).forEach((x, i) => {
-        L.push((i + 1) + ". " + x.name + " — " + x.points + " Punkte, " + x.wins + (x.wins === 1 ? " Sieg" : " Siege") + ", " + x.drinks + (x.drinks === 1 ? " Schluck" : " Schlucke"));
-      });
-      L.push("");
-    }
-    const games = {};
-    entries.forEach((e) => { if (e.game) games[e.game] = (games[e.game] || 0) + 1; });
-    if (Object.keys(games).length) {
-      L.push("GESPIELT");
-      Object.keys(games).sort((a, b) => games[b] - games[a]).forEach((g) => L.push("- " + g + ": " + games[g] + " Runden"));
-      L.push("");
-    }
-    const offline = entries.filter((e) => e.offline).length;
-    if (offline) { L.push(offline + " Einträge wurden nachgereicht (ohne Netz gespielt)."); L.push(""); }
-    L.push("VERLAUF");
-    entries.slice(0, 60).forEach((e) => {
-      const d = new Date(e.at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-      L.push(d + "  " + (e.who || "Runde") + " — " + (e.type === "sieg" ? "gewonnen" : e.type === "schluck" ? "Schluck" : "Runde") + (e.game ? " (" + e.game + ")" : ""));
-    });
-    return L.join("\n");
-  }
-
-  function confirmWipeAll() {
-    SS.modal("Wirklich alles löschen?", frag([el("p", { text: "Chronik, Ausgangskorb und die gespeicherte Runde werden gelöscht. Des kommt nimmer zurück." })]), [
-      { label: "Behalten" },
-      { label: "Alles löschen", kind: "primary", onClick: () => { SS.store.wipe(); SS.state.pending = false; SS.state.lastSession = null; render(); return true; } },
-    ]);
-  }
-
-  /* ══ Abläufe ════════════════════════════════════════════════════════════ */
-  function getName() {
-    const n = (SS.LS.get("name", "") || (SS.store ? SS.store.loadProfile().name : "") || "").trim();
-    return n || "Gast " + Math.floor(Math.random() * 90 + 10);
-  }
-
-  function openCreateDialog() {
-    const nameInput = el("input", { type: "text", value: getName(), maxlength: "22", placeholder: "Dein Name", dataset: { persist: "dlgName" } });
-    const body = frag([
-      el("p", { class: "lead", text: "Dein Gerät wird der Wirt. Danach steht ein vierstelliger Code auf dem Schirm, den die anderen eintippen." }),
-      el("label", { class: "field" }, [el("span", { text: "Dein Name" }), nameInput]),
-      el("div", { class: "banner", text: "Alle Geräte brauchen zum Beitreten kurz Internet. Danach läuft der Datenverkehr direkt zwischen den Geräten." }),
+  /* ── Wirt: Runde aufmachen ────────────────────────────────────────────── */
+  function openCreate() {
+    const prof = SS.store.loadProfile();
+    const nameIn = el("input", { type: "text", value: prof.name || "", placeholder: "Dein Name", maxlength: 22 });
+    const grpIn = el("input", { type: "text", value: SS.state.groupName || "Wirtshausrunde", maxlength: 30 });
+    const body = el("div", {}, [
+      field("Dein Name", nameIn),
+      field("Name der Runde", grpIn),
+      el("p", { class: "muted small", text: "Der Name bleibt auf dem Gerät gespeichert. Beim nächsten Mal steht er schon da." }),
     ]);
     SS.modal("Runde aufmachen", body, [
       { label: "Abbrechen" },
-      { label: "Aufmachen", kind: "primary", onClick: () => {
-          const nm = (nameInput.value || "").trim() || getName();
-          SS.LS.set("name", nm);
-          if (SS.store) SS.store.saveProfile({ name: nm });
-          createGroup(nm);
-          return true;
-        } },
+      {
+        label: "Aufmachen", kind: "primary", onClick: () => {
+          const nm = nameIn.value.trim();
+          if (!nm) { SS.toast("Wie heißt du?", "err"); return false; }
+          SS.store.saveProfile({ name: nm, seen: true });
+          SS.state.groupName = grpIn.value.trim() || "Wirtshausrunde";
+          SS.state.mode = "local"; SS.state.role = "solo"; SS.state.me = null;
+          SS.state.players = [];
+          SS.addPlayer(nm, { isHost: true });
+          SS.state.hostId = SS.state.players[0].id;
+          SS.state.seed = "lokal:" + SS.uid(6);
+          SS.state.phase = "lobby";
+          SS.toast("Runde offen. Jetzt Leut einladen.", "ok");
+          go("lobby");
+        },
+      },
     ]);
   }
 
-  function createGroup(nm) {
-    SS.toast("Runde wird aufgemacht …");
-    SS.net.createGroup(nm)
-      .then(() => { SS.LS.set("lastCode", SS.state.code); go("lobby"); SS.toast("Runde offen. Code: " + SS.state.code, "ok"); })
-      .catch((err) => {
-        SS.toast(err.message, "err");
-        SS.modal("Runde geht ned auf", frag([
-          el("p", { text: err.message }),
-          el("div", { class: "banner", text: "Tipp: Wenn im Netz keine WebRTC-Verbindungen erlaubt sind, spielt's am selben Gerät weiter. Alles geht auch ohne Runde." }),
-        ]), [
-          { label: "Am selben Gerät", kind: "primary", onClick: () => { startLocalFlow(nm); return true; } },
-          { label: "Nochmal probieren", onClick: () => { createGroup(nm); return true; } },
-          { label: "Zumachen" },
-        ]);
-      });
-  }
-
-  function openJoinDialog(prefill) {
-    const codeInput = el("input", { class: "code-input", type: "text", inputmode: "latin", autocapitalize: "characters", autocomplete: "off", maxlength: "4", value: prefill || "", placeholder: "----" });
-    const nameInput = el("input", { type: "text", value: getName(), maxlength: "22", placeholder: "Dein Name", dataset: { persist: "dlgJoinName" } });
-    const body = frag([
-      el("p", { class: "lead", text: "Gib den Code ein, den der Wirt zeigt." }),
-      el("label", { class: "field" }, [el("span", { text: "Rundencode" }), codeInput]),
-      el("label", { class: "field" }, [el("span", { text: "Dein Name" }), nameInput]),
-      el("div", { class: "banner", text: "Groß- und Kleinschreibung is wurscht — der Code wird von allein groß." }),
+  /* ── Beitreten ────────────────────────────────────────────────────────── */
+  function openJoin() {
+    const prof = SS.store.loadProfile();
+    const nameIn = el("input", { type: "text", value: prof.name || "", placeholder: "Dein Name", maxlength: 22 });
+    const codeIn = el("input", { type: "text", value: (SS.state.code || ""), placeholder: "z. B. K7QP", maxlength: 4, class: "code-input" });
+    codeIn.style.textTransform = "uppercase";
+    const netOk = SS.net.available();
+    const body = el("div", {}, [
+      field("Dein Name", nameIn),
+      field("Rundencode", codeIn),
+      el("p", { class: "muted small", text: netOk
+        ? "Der Code steht beim Wirt auf dem Bildschirm. Vier Buchstaben oder Ziffern."
+        : "Gerade ist kein Verbindungsdienst erreichbar. Du kannst trotzdem am selben Gerät mitspielen — dann wandert das Handy." }),
     ]);
-    const box = SS.modal("Mit Code nei", body, [
+    SS.modal("Beitreten", body, [
       { label: "Abbrechen" },
-      { label: "Nei", kind: "primary", onClick: () => {
-          const code = codeInput.value.trim().toUpperCase();
-          const nm = (nameInput.value || "").trim() || getName();
-          SS.LS.set("name", nm);
-          if (SS.store) SS.store.saveProfile({ name: nm });
-          joinGroup(code, nm);
-          return true;
-        } },
+      {
+        label: netOk ? "Beitreten" : "Ohne Netz am Gerät", kind: "primary", onClick: () => {
+          const nm = nameIn.value.trim();
+          if (!nm) { SS.toast("Wie heißt du?", "err"); return false; }
+          SS.store.saveProfile({ name: nm, seen: true });
+          if (!netOk) { joinLocal(nm); return; }
+          const code = codeIn.value.trim().toUpperCase();
+          if (code.length !== 4) { SS.toast("Der Code hat vier Zeichen.", "err"); return false; }
+          joinOnline(code, nm);
+          return false;
+        },
+      },
     ]);
-    setTimeout(() => { if (!prefill) codeInput.focus(); }, 60);
-    return box;
   }
 
-  function joinGroup(code, nm) {
-    SS.toast("Verbindung wird aufgebaut …");
-    SS.net.joinGroup(code, nm)
-      .then(() => { SS.LS.set("lastCode", code); go("lobby"); SS.toast("Dabei: Runde " + SS.state.code, "ok"); })
-      .catch((err) => {
-        SS.toast(err.message, "err");
-        SS.modal("Beitritt geht ned", frag([
-          el("p", { text: err.message }),
-          el("ul", {}, [
-            el("li", { text: "Is der Code richtig abtippt?" }),
-            el("li", { text: "Is die Runde am Wirt-Gerät noch offen?" }),
-            el("li", { text: "Haben beide Geräte Internet?" }),
-          ]),
-        ]), [
-          { label: "Nochmal", kind: "primary", onClick: () => { openJoinDialog(code); return true; } },
-          { label: "Zumachen" },
-        ]);
-      });
-  }
-
-  function startLocalFlow(name) {
-    if (name) SS.LS.set("name", name);
-    SS.state.mode = "local";
-    SS.state.role = "solo";
-    SS.state.code = null;
-    SS.state.players = [];
-    SS.state.scores = {};
-    SS.state.priv = {};
-    SS.state.pending = false;
-    SS.addPlayer(SS.LS.get("name", "") || "Spieler 1", { id: "p1", isHost: true });
-    SS.addPlayer("Spieler 2", { id: "p2" });
-    SS.state.me = null;
-    SS.net.setStatus("offline");
+  function joinLocal(name) {
+    SS.state.mode = "local"; SS.state.role = "solo";
+    if (!SS.state.players.length) { SS.addPlayer(name, { isHost: true }); SS.state.hostId = SS.state.players[0].id; }
+    else SS.addPlayer(name, {});
+    SS.toast("Am Gerät dabei. Aufgaben kommen, sobald der Wirt austeilt.", "ok");
     go("lobby");
   }
 
-  function addLocalPlayerDialog() {
-    const input = el("input", { type: "text", maxlength: "22", placeholder: "Name", dataset: { persist: "addP" } });
-    SS.modal("Wer noch?", frag([
-      el("label", { class: "field" }, [el("span", { text: "Name" }), input]),
-      el("p", { class: "muted", text: "Am selben Gerät kannst zusätzliche Leut anlegen, die sich den Schirm teilen." }),
-    ]), [
-      { label: "Abbrechen" },
-      { label: "Dazu", kind: "primary", onClick: () => {
-          const n = (input.value || "").trim(); if (!n) return false;
-          SS.addPlayer(n, {});
-          if (SS.isHost()) SS.sync();
-          render(); return true;
-        } },
-    ]);
-    setTimeout(() => input.focus(), 60);
-  }
-
-  function openGame(id) {
-    const meta = SS.getMeta(id);
-    if (!meta) return;
-    if (SS.state.mode === "local" && !SS.state.players.length) {
-      SS.addPlayer(SS.LS.get("name", "") || "Spieler 1", { id: "p1", isHost: true });
-      const min = Math.max(meta.minP || 2, 2);
-      for (let i = 2; i <= min; i++) SS.addPlayer("Spieler " + i, { id: "p" + i });
-      SS.state.me = null;
-    }
-    selectGame(id);
-
-    const body = frag([
-      el("p", { class: "lead", text: meta.glyph + "  " + meta.tagline }),
-      el("div", { class: "tags", style: { marginBottom: "12px" } }, (meta.tags || []).map((t) => el("span", { class: "tag", text: TAGS[t] || t }))),
-      el("div", { class: "banner", text: "Regeln: " + meta.rules }),
-      meta.howto && meta.howto.length ? el("div", {}, [el("h3", { text: "So läuft's" }), el("ol", {}, meta.howto.map((h) => el("li", { text: h })))]) : null,
-    ]);
-
-    SS.modal(meta.name, body, [
-      { label: "Zumachen" },
-      { label: "Am selben Gerät", onClick: () => { startLocalFlow(); selectGame(id); return true; } },
-      { label: "In der Runde", kind: "primary", onClick: () => {
-          if (SS.state.mode === "online" && SS.state.role === "host") { selectGame(id); go("lobby"); return true; }
-          if (SS.state.mode === "online" && SS.state.role === "guest") { SS.toast("Der Wirt wählt das Spiel.", "err"); return true; }
-          window.__pendingGame = id;
-          openCreateDialog();
-          return true;
-        } },
-    ]);
-  }
-
-  function startGame() {
-    const meta = SS.getMeta(SS.state.gameId);
-    if (!meta) return;
-    const ctx = SS.makeCtx();
-    SS.state.scores = {};
-    SS.state.players.forEach((p) => (SS.state.scores[p.id] = 0));
-    SS.state.priv = {};
-    SS.state.phase = "playing";
-    SS.state.round = 1;
-    SS.state.lastResult = null;
-    SS.state.pub = {};
-    SS.state.syncSeed = SS.state.syncSeed || (SS.state.code || "lokal") + ":" + SS.uid(6);
-    SS.state.players.forEach((p) => (SS.state.priv[p.id] = {}));
-    SS.logLine("Los geht's: " + meta.name, "ok");
-    const impl = SS.IMPL[SS.state.gameId];
-    if (impl && impl.init) { try { impl.init(ctx); } catch (e) { console.error(e); SS.toast("Startfehler: " + e.message, "err"); } }
-    if (SS.isHost()) SS.sync();
-    if (SS.state.mode === "online" && SS.isHost()) SS.net.broadcast({ t: "start" });
-    go("game");
-    if (SS.state.mode === "online" && SS.state.role === "guest") SS.net.sendToHost({ t: "req" });
-    SS.persist();
-  }
-
-  function restartGame() {
-    SS.modal("Neue Runde?", frag([el("p", { text: "Der Punktestand wird auf null gesetzt und alles neu gemischt." })]), [
-      { label: "Abbrechen" },
-      { label: "Neu starten", kind: "primary", onClick: () => { SS.state.syncSeed = null; startGame(); return true; } },
-    ]);
-  }
-
-  function leaveGame() {
-    SS.modal("Runde verlassen?", frag([el("p", { text: "Ihr kommt zurück in die Lobby. Die Runde bleibt bestehen." })]), [
-      { label: "Weiterspielen" },
-      { label: "Verlassen", kind: "primary", onClick: () => {
-          SS.state.phase = "lobby"; SS.state.turn = null; SS.state.pub = {}; SS.state.priv = {};
-          if (SS.isHost()) SS.sync();
-          go("lobby"); return true;
-        } },
-    ]);
-  }
-
-  function toHome() {
-    SS.state.mode = "local";
-    SS.state.role = "solo";
-    SS.state.code = null;
-    SS.state.connection = "offline";
-    SS.state.phase = "lobby";
-    go("home");
-  }
-
-  function rulesDialog(meta) {
-    SS.modal(meta.name + " — Regeln", frag([
-      el("div", { class: "banner", text: meta.rules }),
-      meta.howto && meta.howto.length ? el("div", {}, [el("h3", { text: "Ablauf" }), el("ol", {}, meta.howto.map((h) => el("li", { text: h })))]) : null,
-    ]), [{ label: "Passt", kind: "primary" }]);
-  }
-
-  /* ══ Hilfe ══════════════════════════════════════════════════════════════ */
-  function helpDialog() {
-    SS.modal("Kurze Anleitung", frag([
-      el("h3", { text: "Runde aufmachen" }),
-      el("ol", {}, [
-        el("li", { text: "Ein Gerät wählt «Runde aufmachen» und wird der Wirt." }),
-        el("li", { text: "Es zeigt einen vierstelligen Code, zum Beispiel K7QP." }),
-        el("li", { text: "Alle anderen tippen den Code ein — bis zu 100 Leut." }),
-      ]),
-      el("h3", { text: "Wenn's Netz weg is" }),
-      el("p", { text: "Für den Beitritt braucht's kurz Internet: Die Geräte finden sich über einen Vermittlungsdienst und reden danach direkt miteinander (WebRTC). Reißt die Verbindung ab, spielt's trotzdem weiter — jede Runde wandert in den Ausgangskorb und wird nachgereicht, sobald wieder Netz da is." }),
-      el("p", { text: "Reines Bluetooth zwischen iPhone und Android geht im Browser ned. Des kann die Seite ned leisten, ohne dass ihr a App installiert." }),
-      el("h3", { text: "Am selben Gerät" }),
-      el("p", { text: "Wähle «Am selben Gerät». Zwei bis hundert Leut spielen nacheinander an einem Schirm. Bei Spielen, wo alle gleichzeitig antworten, tippt jeder vorher seinen Namen an." }),
-      el("h3", { text: "Strafen" }),
-      el("p", { text: "Auf der Startseite stellst ein, was bei einer Strafe passiert: ein Schluck, eine Aufgabe oder ein Glas Wasser. Dann spielt's jeder so, wie er mag." }),
-      el("h3", { text: "Kurzbefehle" }),
-      el("p", {}, [el("span", { class: "kbd", text: "Esc" }), " schließt Dialoge."]),
-    ]), [{ label: "Passt", kind: "primary" }]);
-  }
-
-  /* ══ Kleinkram ══════════════════════════════════════════════════════════ */
-  function copy(text, okMsg) {
-    if (!text) return;
-    const done = () => SS.toast(okMsg || "Kopiert", "ok");
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
-    } else fallbackCopy(text, done);
-  }
-  function fallbackCopy(text, done) {
-    const ta = el("textarea", { style: { position: "fixed", opacity: "0" } });
-    ta.value = text;
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand("copy"); done(); } catch (e) { SS.toast("Kopieren geht ned. Bitte abschreiben.", "err"); }
-    ta.remove();
-  }
-
-  /* ══ Start ══════════════════════════════════════════════════════════════ */
-  function initUI() {
-    SS.$("#brandBtn").addEventListener("click", () => { if (SS.state.phase === "playing") leaveGame(); else go("home"); });
-    SS.$("#helpBtn").addEventListener("click", helpDialog);
-    const cb = SS.$("#chronikBtn");
-    if (cb) cb.addEventListener("click", () => go("chronik"));
-    const wb = SS.$("#wirtBtn");
-    if (wb) wb.addEventListener("click", openWirtDialog);
-
-    SS.on("net", () => {
-      if (SS.state.route === "lobby" || SS.state.route === "game") render();
-      else { renderMechanik(); updateStatusbar(); }
-      if (window.__pendingGame && SS.state.role === "host") { selectGame(window.__pendingGame); window.__pendingGame = null; render(); }
+  function joinOnline(code, name) {
+    SS.state.mode = "online"; SS.state.code = code; SS.state.role = "guest";
+    SS.toast("Verbinde mit Runde " + code + " …");
+    SS.net.joinGroup(code, name).then(() => {
+      SS.toast("Du bist dabei!", "ok");
+      go(SS.state.phase === "running" ? "tasks" : "lobby");
+    }).catch((e) => {
+      SS.toast(e.message, "err");
     });
-    SS.on("outbox", updateStatusbar);
-    SS.on("chronicle", () => { if (SS.state.route === "chronik") render(); });
+  }
 
-    setInterval(() => { updateStatusbar(); }, 2500);
+  /* ── Lobby ────────────────────────────────────────────────────────────── */
+  function viewLobby() {
+    const s = SS.state;
+    const host = SS.isHost();
+    const body = el("div", { class: "wrap" }, [
+      el("section", { class: "lobby-head" }, [
+        el("h1", { text: s.groupName || "Wirtshausrunde" }),
+        s.code ? el("div", { class: "code-box" }, [
+          el("span", { class: "code-label", text: "Rundencode" }),
+          el("span", { class: "code-big", text: s.code }),
+          el("button", { class: "btn btn-outline tiny", text: "Kopieren", onclick: () => copyText(s.code) }),
+        ]) : el("p", { class: "muted", text: "Diese Runde läuft am selben Gerät. Für getrennte Bildschirme beim Wirt eine Runde mit Code aufmachen." }),
+      ]),
+      el("section", { class: "panel" }, [
+        el("div", { class: "panel-head" }, [
+          el("h2", { text: "Wer ist da?" }),
+          el("span", { class: "pill", text: SS.alive().length + " Leut" }),
+        ]),
+        el("div", { class: "roster" }, SS.alive().map((p) => el("div", { class: "roster-row" }, [
+          avatar(p), el("span", { class: "roster-name", text: p.name }),
+          p.isHost ? pill("Wirt", "gold") : null,
+          !host ? null : el("span", { class: "spacer" }),
+          !host || p.isHost ? null : el("button", {
+            class: "btn btn-ghost tiny", text: "Entfernen",
+            onclick: () => { SS.removePlayer(p.id); SS.logLine(p.name + " wurde rausgesetzt."); SS.sync(); },
+          }),
+        ]))),
+      ]),
+      host ? el("section", { class: "panel" }, [
+        el("div", { class: "panel-head" }, [el("h2", { text: "Aufgaben vorbereiten" })]),
+        settingsForm(),
+        el("div", { class: "row-actions" }, [
+          btn("Aufgaben austeilen", { kind: "primary", onClick: dealNow }),
+          btn("Sidequests verwalten", { onClick: () => go("sidequests") }),
+        ]),
+        el("p", { class: "muted small", text: "Nach dem Austeilen bekommt jeder seine Liste. Bis dahin kann alles noch geändert werden." }),
+      ]) : el("section", { class: "panel" }, [
+        el("div", { class: "panel-head" }, [el("h2", { text: "Warten auf den Wirt" })]),
+        el("p", { class: "muted", text: "Sobald der Wirt austeilt, stehen deine Aufgaben hier." }),
+      ]),
+    ]);
+    return el("div", { class: "view view-lobby" }, [topbar(), body, footer()]);
+  }
+
+  /** Einstellungen: Aufgabentypen an- und abwählen. */
+  function settingsForm() {
+    const s = SS.state.settings;
+    const types = SS.tasks.taskTypes();
+    if (!s.types) s.types = types.map((t) => t.id);
+    const wrap = el("div", { class: "settings" });
+
+    const count = el("input", { type: "range", min: 5, max: 10, value: s.perPlayer });
+    const countVal = el("strong", { text: s.perPlayer + " pro Person" });
+    count.addEventListener("input", () => {
+      s.perPlayer = Number(count.value);
+      countVal.textContent = s.perPlayer + " pro Person";
+    });
+    wrap.appendChild(el("div", { class: "setting-row" }, [
+      el("span", { class: "setting-label", text: "Aufgaben pro Person" }), count, countVal,
+    ]));
+
+    const lvl = el("input", { type: "range", min: 1, max: 3, value: s.maxLevel });
+    const lvlVal = el("strong", { text: ["", "nur harmlos", "bis ordentlich", "bis wild"][s.maxLevel] });
+    lvl.addEventListener("input", () => {
+      s.maxLevel = Number(lvl.value);
+      lvlVal.textContent = ["", "nur harmlos", "bis ordentlich", "bis wild"][s.maxLevel];
+      refresh();
+    });
+    wrap.appendChild(el("div", { class: "setting-row" }, [
+      el("span", { class: "setting-label", text: "Wie derb darf's sein?" }), lvl, lvlVal,
+    ]));
+
+    const grid = el("div", { class: "type-grid" });
+    function refresh() {
+      grid.innerHTML = "";
+      types.forEach((t) => {
+        const on = s.types.indexOf(t.id) !== -1;
+        const tooHard = t.level > s.maxLevel;
+        const b = el("button", {
+          class: "type-chip" + (on ? " on" : "") + (tooHard ? " dim" : ""),
+          title: t.hint,
+          onclick: () => {
+            const i = s.types.indexOf(t.id);
+            if (i === -1) s.types.push(t.id); else s.types.splice(i, 1);
+            if (!s.types.length) { s.types.push(t.id); SS.toast("Mindestens ein Typ muss bleiben.", "err"); }
+            refresh();
+          },
+        }, [
+          el("span", { class: "type-glyph", text: t.glyph }),
+          el("span", { class: "type-name", text: t.name }),
+          el("span", { class: "type-count", text: String(SS.tasks.tasksOfType(t.id).length) }),
+        ]);
+        grid.appendChild(b);
+      });
+    }
+    refresh();
+    wrap.appendChild(el("div", { class: "setting-block" }, [
+      el("span", { class: "setting-label", text: "Aufgabentypen (an- und abwählbar)" }), grid,
+    ]));
+
+    const sqToggle = el("input", { type: "checkbox", checked: s.sidequests });
+    sqToggle.addEventListener("change", () => { s.sidequests = sqToggle.checked; });
+    wrap.appendChild(el("label", { class: "setting-row check" }, [
+      sqToggle, el("span", { text: "Sidequests erlauben (freiwillige Extra-Aufgaben)" }),
+    ]));
+
+    const confSel = el("select", {}, [
+      el("option", { value: "host", text: "Der Wirt hakt ab", selected: s.confirmMode === "host" }),
+      el("option", { value: "self", text: "Jeder hakt selbst ab", selected: s.confirmMode === "self" }),
+    ]);
+    confSel.addEventListener("change", () => { s.confirmMode = confSel.value; });
+    wrap.appendChild(el("label", { class: "setting-row" }, [
+      el("span", { class: "setting-label", text: "Wer gibt Aufgaben frei?" }), confSel,
+    ]));
+
+    return wrap;
+  }
+
+  function dealNow() {
+    const s = SS.state;
+    if (SS.alive().length < 1) { SS.toast("Erst muss jemand da sein.", "err"); return; }
+    if (!s.seed) s.seed = (s.code || "lokal") + ":" + SS.uid(6);
+    SS.dealTasks();
+    SS.toast("Aufgaben sind ausgeteilt!", "ok");
+    go("tasks");
+  }
+
+  /* ── Meine Aufgaben ───────────────────────────────────────────────────── */
+  function viewTasks() {
+    const s = SS.state;
+    const mePid = s.mode === "online" ? s.me : (s.players[0] && s.players[0].id);
+    const my = SS.tasksOf(mePid);
+    const body = el("div", { class: "wrap" });
+
+    if (!my.length) {
+      body.appendChild(el("section", { class: "panel" }, [
+        el("h2", { text: "Noch keine Aufgaben" }),
+        el("p", { class: "muted", text: SS.isHost() ? "Teile die Aufgaben aus, sobald alle da sind." : "Der Wirt hat noch nicht ausgeteilt." }),
+        SS.isHost() ? btn("Aufgaben austeilen", { kind: "primary", onClick: dealNow }) : null,
+      ]));
+      return el("div", { class: "view" }, [topbar(), body, footer()]);
+    }
+
+    const c = SS.doneCount(mePid);
+    body.appendChild(el("section", { class: "task-head" }, [
+      el("h1", { text: "Deine Aufgaben" }),
+      el("p", { class: "muted", text: c.done + " von " + c.total + " erledigt · " + SS.pointsOf(mePid) + " Punkte" }),
+      el("div", { class: "progress" }, [el("div", { class: "progress-fill", style: { width: Math.round((c.done / Math.max(1, c.total)) * 100) + "%" } })]),
+    ]));
+
+    const open = my.filter((t) => !t.confirmed);
+    const done = my.filter((t) => t.confirmed);
+    if (open.length) {
+      body.appendChild(el("section", { class: "panel" }, [
+        el("div", { class: "panel-head" }, [el("h2", { text: "Noch offen" }), pill(String(open.length))]),
+        el("div", { class: "task-list" }, open.map(taskCard)),
+      ]));
+    }
+    if (done.length) {
+      body.appendChild(el("section", { class: "panel done-panel" }, [
+        el("div", { class: "panel-head" }, [el("h2", { text: "Abgehakt" }), pill(String(done.length), "gold")]),
+        el("div", { class: "task-list" }, done.map(taskCard)),
+      ]));
+    }
+    body.appendChild(sidequestPanel(mePid));
+    return el("div", { class: "view" }, [topbar(), body, footer()]);
+  }
+
+  /** Eine Aufgabe als Karte mit Foto-Knopf. */
+  function taskCard(t) {
+    const s = SS.state;
+    const mePid = s.mode === "online" ? s.me : (s.players[0] && s.players[0].id);
+    const owner = findOwner(t.aid);
+    const isMine = owner === mePid;
+    const photo = SS.photoFor(t.aid);
+    const target = t.target ? SS.player(t.target) : null;
+
+    const card = el("article", { class: "task" + (t.confirmed ? " confirmed" : "") + (photo ? " has-photo" : "") });
+
+    card.appendChild(el("div", { class: "task-top" }, [
+      typeBadge(t),
+      el("span", { class: "task-points", text: "+" + t.points }),
+      t.confirmed ? pill("abgehakt", "gold") : photo ? pill("Nachweis da", "ok") : null,
+    ]));
+
+    card.appendChild(el("p", { class: "task-text", text: t.text }));
+
+    const meta = el("div", { class: "task-meta" });
+    if (target) meta.appendChild(el("span", { class: "task-target" }, [avatar(target, "tiny"), el("span", { text: "geht an " + target.name })]));
+    if (!isMine && owner) meta.appendChild(el("span", { class: "muted small", text: "gehört " + SS.nameOf(owner) }));
+    card.appendChild(meta);
+
+    if (photo) card.appendChild(el("div", { class: "proof" }, [SS.proof.img(photo.data), el("span", { class: "muted small", text: "Nachweis vom " + new Date(photo.at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) + " Uhr" })]));
+
+    const acts = el("div", { class: "task-acts" });
+    if (isMine && !t.confirmed) {
+      acts.appendChild(btn(photo ? "Neues Foto" : "Foto als Beweis", {
+        kind: photo ? "outline" : "primary",
+        onClick: () => shootPhoto(owner, t.aid),
+      }));
+    }
+    if (photo && !t.confirmed && SS.isHost()) {
+      acts.appendChild(btn("Freigeben", { kind: "primary", onClick: () => hostConfirm(owner, t.aid) }));
+      acts.appendChild(btn("Ablehnen", { kind: "danger", onClick: () => hostReject(owner, t.aid) }));
+    }
+    if (photo && !t.confirmed && !SS.isHost() && SS.state.settings.confirmMode === "self") {
+      acts.appendChild(btn("Selbst abhaken", { kind: "primary", onClick: () => selfConfirm(owner, t.aid) }));
+    }
+    if (acts.children.length) card.appendChild(acts);
+    return card;
+  }
+
+  function findOwner(aid) {
+    for (const pid in SS.state.assignments) {
+      if (SS.state.assignments[pid].some((t) => t.aid === aid)) return pid;
+    }
+    return null;
+  }
+
+  function shootPhoto(pid, aid) {
+    SS.proof.pick().then((res) => {
+      if (!res) return;
+      // actAs erledigt alles: Wirt und lokale Runde führen direkt aus,
+      // Gäste schicken an den Wirt (und ohne Netz in den Ausgangskorb).
+      SS.actAs(pid, "photo", { pid: pid, aid: aid, data: res.data });
+      SS.toast("Nachweis gespeichert. Der Wirt schaut gleich drüber.", "ok");
+    });
+  }
+  function hostConfirm(pid, aid) { SS.actAs(pid, "confirm", { pid: pid, aid: aid }); SS.toast("Freigegeben.", "ok"); }
+  function hostReject(pid, aid) { SS.actAs(pid, "reject", { pid: pid, aid: aid }); SS.toast("Abgelehnt — nochmal versuchen.", "err"); }
+  function selfConfirm(pid, aid) { SS.actAs(pid, "confirm", { pid: pid, aid: aid }); }
+
+  /* ── Sidequests ───────────────────────────────────────────────────────── */
+  function sidequestPanel(mePid) {
+    const s = SS.state;
+    if (!s.settings.sidequests) return el("div");
+    const open = s.sidequests.filter((q) => !(q.done || {})[mePid]);
+    const mine = s.sidequests.filter((q) => (q.done || {})[mePid]);
+    const panel = el("section", { class: "panel sidequest-panel" }, [
+      el("div", { class: "panel-head" }, [
+        el("h2", { text: "Sidequests" }),
+        pill("freiwillig", "ghost"),
+      ]),
+      el("p", { class: "muted small", text: "Extra-Aufgaben von der Runde. Wer mitmacht, kassiert Extrapunkte — wer nicht, auch kein Drama." }),
+    ]);
+
+    if (open.length) {
+      panel.appendChild(el("div", { class: "task-list" }, open.map((q) => {
+        const drawnMe = q.drawn === mePid;
+        const c = el("article", { class: "task sidequest" + (drawnMe ? " drawn" : "") });
+        c.appendChild(el("div", { class: "task-top" }, [
+          pill("Sidequest", "ghost"),
+          el("span", { class: "task-points", text: "+" + (q.points || 2) }),
+          drawnMe ? pill("dir gezogen", "gold") : null,
+        ]));
+        c.appendChild(el("p", { class: "task-text", text: q.text }));
+        if (q.by) c.appendChild(el("p", { class: "muted small", text: "Vorschlag von " + SS.nameOf(q.by) }));
+        c.appendChild(el("div", { class: "task-acts" }, [
+          btn("Annehmen", { kind: drawnMe ? "primary" : "outline", onClick: () => SS.actAs(mePid, "sidequest-take", { sid: q.id }) }),
+          btn("Mit Foto abschließen", { onClick: () => sidequestShot(mePid, q.id) }),
+        ]));
+        return c;
+      })));
+    }
+    if (mine.length) {
+      panel.appendChild(el("h3", { text: "Geschafft" }));
+      panel.appendChild(el("div", { class: "task-list" }, mine.map((q) => {
+        const c = el("article", { class: "task confirmed" });
+        c.appendChild(el("p", { class: "task-text", text: q.text }));
+        const ph = SS.store.album().find((p) => p.aid === "sq:" + q.id && p.pid === mePid);
+        if (ph) c.appendChild(el("div", { class: "proof" }, [SS.proof.img(ph.data)]));
+        return c;
+      })));
+    }
+
+    // Vorschlag einreichen
+    const inp = el("input", { type: "text", placeholder: "Eigene Sidequest vorschlagen …", maxlength: 140 });
+    panel.appendChild(el("div", { class: "row-actions" }, [
+      inp,
+      btn("Vorschlagen", {
+        onClick: () => {
+          const txt = inp.value.trim();
+          if (txt.length < 6) { SS.toast("Ein bisschen mehr darf's sein.", "err"); return; }
+          SS.actAs(mePid, "propose", { text: txt });
+          inp.value = "";
+          SS.toast("Vorschlag liegt beim Wirt.", "ok");
+          SS.renderCurrent();
+        },
+      }),
+    ]));
+    if (s.proposals.filter((p) => p.by === mePid).length) {
+      panel.appendChild(el("p", { class: "muted small", text: "Deine Vorschläge liegen beim Wirt zur Freigabe." }));
+    }
+    return panel;
+  }
+
+  function sidequestShot(pid, sid) {
+    SS.proof.pick().then((res) => {
+      if (!res) return;
+      SS.actAs(pid, "sidequest-done", { sid: sid, data: res.data });
+      SS.toast("Sidequest geschafft!", "ok");
+      SS.renderCurrent();
+    });
+  }
+
+  /* ── Sidequest-Verwaltung (Wirt) ──────────────────────────────────────── */
+  function viewSidequests() {
+    const s = SS.state;
+    const body = el("div", { class: "wrap" }, [
+      el("section", { class: "panel" }, [
+        el("div", { class: "panel-head" }, [el("h2", { text: "Vorschläge aus der Runde" }), pill(String(s.proposals.filter((p) => p.status === "offen").length) + " offen")]),
+        s.proposals.length ? el("div", { class: "task-list" }, s.proposals.map((p) => {
+          const c = el("article", { class: "task proposal " + p.status });
+          c.appendChild(el("p", { class: "task-text", text: p.text }));
+          c.appendChild(el("p", { class: "muted small", text: "von " + SS.nameOf(p.by) + " · " + p.status }));
+          if (p.status === "offen") {
+            c.appendChild(el("div", { class: "task-acts" }, [
+              btn("Freigeben", { kind: "primary", onClick: () => { SS.applyAction(SS.state.me || "host", "approve", { id: p.id }); SS.sync(); SS.renderCurrent(); } }),
+              btn("Ablehnen", { kind: "danger", onClick: () => { SS.applyAction(SS.state.me || "host", "reject-proposal", { id: p.id }); SS.sync(); SS.renderCurrent(); } }),
+            ]));
+          }
+          return c;
+        })) : el("p", { class: "muted", text: "Noch keine Vorschläge. Die Runde kann unter «Aufgaben» welche einreichen." }),
+      ]),
+      el("section", { class: "panel" }, [
+        el("div", { class: "panel-head" }, [el("h2", { text: "Freigegebene Sidequests" }), pill(String(s.sidequests.length))]),
+        s.sidequests.length ? el("div", { class: "task-list" }, s.sidequests.map((q) => {
+          const c = el("article", { class: "task sidequest" });
+          c.appendChild(el("p", { class: "task-text", text: q.text }));
+          c.appendChild(el("p", { class: "muted small", text: "gezogen: " + (q.drawn ? SS.nameOf(q.drawn) : "niemand") + " · geschafft: " + Object.keys(q.done || {}).length }));
+          return c;
+        })) : el("p", { class: "muted", text: "Noch keine freigegeben." }),
+      ]),
+      el("div", { class: "row-actions" }, [btn("Zurück zur Lobby", { onClick: () => go("lobby") })]),
+    ]);
+    return el("div", { class: "view" }, [topbar(), body, footer()]);
+  }
+
+  /* ── Album ────────────────────────────────────────────────────────────── */
+  function viewAlbum() {
+    const s = SS.state;
+    const photos = SS.allProofs();
+    const body = el("div", { class: "wrap" }, [
+      el("section", { class: "album-head" }, [
+        el("h1", { text: "Album des Abends" }),
+        el("p", { class: "muted", text: photos.length + " Nachweise · " + SS.alive().length + " Leut" }),
+      ]),
+    ]);
+    if (!photos.length) {
+      body.appendChild(el("section", { class: "panel" }, [el("p", { class: "muted", text: "Noch kein Bild im Album. Aufgaben brauchen einen Nachweis — dann füllt sich das hier von selbst." })]));
+    } else {
+      const byPid = {};
+      photos.forEach((p) => { (byPid[p.pid] = byPid[p.pid] || []).push(p); });
+      Object.keys(byPid).forEach((pid) => {
+        body.appendChild(el("section", { class: "panel" }, [
+          el("div", { class: "panel-head" }, [avatar(SS.player(pid) || { name: "Gast", color: "#8a6a1f" }), el("h2", { text: SS.nameOf(pid) }), pill(String(byPid[pid].length) + " Bilder")]),
+          el("div", { class: "album-grid" }, byPid[pid].map((p) => el("figure", { class: "album-item" }, [
+            SS.proof.img(p.data),
+            el("figcaption", { class: "muted small", text: p.text || "" }),
+          ]))),
+        ]));
+      });
+    }
+    body.appendChild(el("div", { class: "row-actions" }, [
+      btn("Bericht anzeigen", { kind: "primary", onClick: openReport }),
+      btn("Zurück", { onClick: () => go(SS.state.phase === "lobby" ? "lobby" : "tasks") }),
+    ]));
+    return el("div", { class: "view" }, [topbar(), body, footer()]);
+  }
+
+  /* ── Auswertung / Bericht ─────────────────────────────────────────────── */
+  function openReport() {
+    const r = SS.ranking();
+    const body = el("div", { class: "report" });
+    if (r.length) {
+      const top = el("div", { class: "podium" });
+      r.slice(0, 3).forEach((x, i) => top.appendChild(el("div", { class: "podium-item rank-" + (i + 1) }, [
+        avatar(SS.player(x.pid) || { name: x.name, color: x.color }, "big"),
+        el("strong", { text: x.name }),
+        el("span", { class: "muted small", text: x.points + " Punkte · " + x.done + "/" + x.total }),
+      ])));
+      body.appendChild(top);
+      body.appendChild(el("table", { class: "rank-table" }, [
+        el("thead", {}, [el("tr", {}, [el("th", { text: "#" }), el("th", { text: "Name" }), el("th", { text: "Punkte" }), el("th", { text: "Aufgaben" })])]),
+        el("tbody", {}, r.map((x, i) => el("tr", {}, [
+          el("td", { text: String(i + 1) }), el("td", { text: x.name }),
+          el("td", { text: String(x.points) }), el("td", { text: x.done + " / " + x.total }),
+        ]))),
+      ]));
+    }
+    const report = SS.buildReport();
+    body.appendChild(el("textarea", { class: "report-text", readonly: true, value: report }));
+    body.appendChild(el("p", { class: "muted small", text: "Alles markieren und kopieren — passt in jede Gruppennachricht." }));
+    SS.modal("Abendbericht", body, [
+      { label: "Kopieren", onClick: () => { copyText(report); SS.toast("Bericht kopiert.", "ok"); return false; } },
+      { label: "Zumachen", kind: "primary" },
+    ]);
+  }
+
+  function copyText(t) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t).then(() => SS.toast("Kopiert.", "ok"), () => fallback());
+      } else fallback();
+    } catch (e) { fallback(); }
+    function fallback() {
+      const ta = el("textarea", { value: t });
+      ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); SS.toast("Kopiert.", "ok"); } catch (e) { SS.toast("Bitte von Hand markieren.", "err"); }
+      ta.remove();
+    }
+  }
+
+  /* ── Wirt-Bereich ─────────────────────────────────────────────────────── */
+  const WIRT_KEY = "135LowLap";
+  let wirtOpen = false;
+
+  function openWirtGate() {
+    if (wirtOpen) { openWirtPanel(); return; }
+    const inp = el("input", { type: "password", placeholder: "Schlüssel" });
+    const body = el("div", {}, [
+      field("Wirt-Schlüssel", inp),
+      el("p", { class: "muted small", text: "Damit kommt man an die Abendverwaltung. Steht im Quelltext — es soll nur verhindern, dass jemand versehentlich im Management landet." }),
+    ]);
+    SS.modal("Wirt-Bereich", body, [
+      { label: "Abbrechen" },
+      {
+        label: "Aufsperren", kind: "primary", onClick: () => {
+          if (inp.value.trim() !== WIRT_KEY) { SS.toast("Falscher Schlüssel.", "err"); return false; }
+          wirtOpen = true;
+          SS.toast("Wirt-Bereich offen.", "ok");
+          openWirtPanel();
+          return false;
+        },
+      },
+    ]);
+  }
+
+  function openWirtPanel() {
+    const s = SS.state;
+    const body = el("div", { class: "wirt" }, [
+      el("div", { class: "wirt-tabs" }, [
+        tab("Übersicht", () => wirtOverview()),
+        tab("Teilnehmer", () => wirtPlayers()),
+        tab("Sidequests", () => wirtSidequests()),
+        tab("Abendbericht", () => wirtReport()),
+      ]),
+    ]);
+    const box = SS.modal("Wirt-Bereich", body, [{ label: "Zumachen", kind: "primary" }]);
+    body._tabs = body.querySelectorAll(".wirt-tab");
+    function tab(label, render) {
+      const b = el("button", { class: "wirt-tab", text: label, onclick: () => {
+        $$(".wirt-tab", body).forEach((x) => x.classList.remove("on"));
+        b.classList.add("on");
+        const host = body.querySelector(".wirt-body");
+        host.innerHTML = "";
+        host.appendChild(render());
+      } });
+      return b;
+    }
+    const host = el("div", { class: "wirt-body" });
+    body.appendChild(host);
+    host.appendChild(wirtOverview());
+    body.querySelector(".wirt-tab").classList.add("on");
+    return box;
+  }
+
+  function wirtOverview() {
+    const s = SS.state;
+    const r = SS.ranking();
+    const box = el("div", {});
+    box.appendChild(el("div", { class: "stat-row" }, [
+      stat("Dabei", String(SS.alive().length)),
+      stat("Aufgaben", String(Object.values(s.assignments).reduce((n, a) => n + a.length, 0))),
+      stat("Nachweise", String(SS.allProofs().length)),
+      stat("Sidequests", String(s.sidequests.length)),
+    ]));
+    box.appendChild(el("h3", { text: "Zwischenstand" }));
+    box.appendChild(el("table", { class: "rank-table" }, [
+      el("thead", {}, [el("tr", {}, [el("th", { text: "Name" }), el("th", { text: "Punkte" }), el("th", { text: "offen" }), el("th", { text: "warten" })])]),
+      el("tbody", {}, r.map((x) => {
+        const waiting = SS.tasksOf(x.pid).filter((t) => t.done && !t.confirmed).length;
+        return el("tr", {}, [
+          el("td", { text: x.name }), el("td", { text: String(x.points) }),
+          el("td", { text: String(x.open) }), el("td", { text: String(waiting) }),
+        ]);
+      })),
+    ]));
+    box.appendChild(el("div", { class: "row-actions" }, [
+      btn("Aufgaben neu austeilen", { onClick: () => { SS.dealTasks(); SS.toast("Neu ausgeteilt.", "ok"); SS.renderCurrent(); } }),
+      btn("Abend abschließen", { kind: "primary", onClick: () => {
+        SS.state.phase = "over";
+        SS.logLine("Der Wirt hat den Abend abgeschlossen.", "ok");
+        if (SS.state.mode === "online") SS.net.broadcast({ t: "closed" });
+        SS.sync();
+        SS.toast("Abend abgeschlossen.", "ok");
+      } }),
+    ]));
+    return box;
+  }
+
+  function wirtPlayers() {
+    const s = SS.state;
+    const box = el("div", {});
+    box.appendChild(el("div", { class: "roster" }, SS.state.players.map((p) => el("div", { class: "roster-row" }, [
+      avatar(p), el("span", { class: "roster-name", text: p.name }),
+      p.isHost ? pill("Wirt", "gold") : null,
+      p.connected === false ? pill("weg", "ghost") : null,
+      el("span", { class: "spacer" }),
+      p.connected === false ? btn("Wieder aufnehmen", { cls: "tiny", onClick: () => { p.connected = true; SS.sync(); SS.renderCurrent(); } }) : null,
+      !p.isHost ? btn("Entfernen", { kind: "danger", cls: "tiny", onClick: () => { SS.removePlayer(p.id); SS.sync(); SS.renderCurrent(); } }) : null,
+    ]))));
+    const nameIn = el("input", { type: "text", placeholder: "Namen nachtragen …", maxlength: 22 });
+    box.appendChild(el("div", { class: "row-actions" }, [
+      nameIn,
+      btn("Dazuschreiben", { onClick: () => {
+        const n = nameIn.value.trim();
+        if (!n) return;
+        SS.addPlayer(n, {});
+        SS.logLine(n + " wurde nachgetragen.");
+        SS.sync(); nameIn.value = ""; SS.renderCurrent();
+      } }),
+    ]));
+    box.appendChild(el("p", { class: "muted small", text: "Namen bleiben auf jedem Gerät gespeichert — auch nach einem Neustart." }));
+    return box;
+  }
+
+  function wirtSidequests() {
+    const s = SS.state;
+    const box = el("div", {});
+    box.appendChild(el("h3", { text: "Vorschläge" }));
+    if (!s.proposals.length) box.appendChild(el("p", { class: "muted", text: "Noch keine Vorschläge." }));
+    s.proposals.forEach((p) => {
+      const row = el("div", { class: "wirt-row" }, [
+        el("span", { class: "task-text", text: p.text }),
+        el("span", { class: "muted small", text: "von " + SS.nameOf(p.by) + " · " + p.status }),
+        p.status === "offen" ? btn("Freigeben", { kind: "primary", cls: "tiny", onClick: () => { SS.approveProposal(p.id); SS.sync(); openWirtPanel(); } }) : null,
+        p.status === "offen" ? btn("Ablehnen", { kind: "danger", cls: "tiny", onClick: () => { SS.rejectProposal(p.id); SS.sync(); openWirtPanel(); } }) : null,
+      ]);
+      box.appendChild(row);
+    });
+    box.appendChild(el("h3", { text: "Freigegeben" }));
+    if (!s.sidequests.length) box.appendChild(el("p", { class: "muted", text: "Noch keine freigegeben." }));
+    s.sidequests.forEach((q) => box.appendChild(el("div", { class: "wirt-row" }, [
+      el("span", { class: "task-text", text: q.text }),
+      el("span", { class: "muted small", text: "gezogen: " + (q.drawn ? SS.nameOf(q.drawn) : "—") + " · geschafft: " + Object.keys(q.done || {}).length }),
+    ])));
+    return box;
+  }
+
+  function wirtReport() {
+    const box = el("div", {});
+    const ta = el("textarea", { class: "report-text", readonly: true, value: SS.buildReport() });
+    box.appendChild(ta);
+    box.appendChild(el("div", { class: "row-actions" }, [
+      btn("Kopieren", { kind: "primary", onClick: () => copyText(ta.value) }),
+      btn("Alles löschen (neuer Abend)", { kind: "danger", onClick: () => {
+        if (!confirm("Wirklich alles löschen? Namen, Aufgaben, Album und Chronik sind dann weg.")) return;
+        SS.store.wipe();
+        SS.state.players = []; SS.state.assignments = {}; SS.state.sidequests = []; SS.state.proposals = [];
+        SS.state.phase = "lobby"; SS.state.code = null; SS.state.me = null;
+        SS.logLine("Alles gelöscht — neuer Abend.");
+        SS.renderCurrent();
+        SS.toast("Frisch für den nächsten Abend.", "ok");
+      } }),
+    ]));
+    return box;
+  }
+  function stat(label, val) {
+    return el("div", { class: "stat" }, [el("strong", { text: val }), el("span", { class: "muted small", text: label })]);
+  }
+
+  /* ── Navigation ───────────────────────────────────────────────────────── */
+  const VIEWS = { home: viewHome, lobby: viewLobby, tasks: viewTasks, sidequests: viewSidequests, album: viewAlbum };
+  function go(route) {
+    SS.state.route = route;
+    SS.renderCurrent();
+    window.scrollTo(0, 0);
+  }
+
+  function render() {
+    const root = $("#app");
+    const route = SS.state.route || "home";
+    const view = VIEWS[route] || viewHome;
+    root.innerHTML = "";
+    root.appendChild(view());
+    updateOutbox();
+  }
+
+  function updateOutbox() {
+    const bar = $("#outboxBar");
+    if (!bar || !SS.store) return;
+    const n = SS.store.outboxCount();
+    if (!n) { bar.hidden = true; bar.textContent = ""; return; }
+    bar.hidden = false;
+    bar.textContent = n + " Sache(n) warten auf Netz — wird automatisch nachgreicht.";
+  }
+
+  function initUI() {
+    SS.setRenderCurrent(render);
+    SS.on("net", render);
+    SS.on("joined", render);
+    SS.on("outbox", updateOutbox);
+    document.addEventListener("click", (e) => {
+      const t = e.target.closest && e.target.closest("#brandBtn");
+      if (t) go("home");
+    });
     render();
   }
 
-  SS.setRenderCurrent(renderCurrentGame);
-  SS.ui = {
-    render, renderCurrent: renderCurrentGame, go, initUI, showScoreboard,
-    copy, helpDialog, selectGame, startGame, openJoinDialog, openCreateDialog,
-    viewChronicle, penalty, penaltyWord,
-  };
+  SS.ui = { go, render, initUI, openCreate, openJoin, openReport, openWirtGate, copyText };
 })();

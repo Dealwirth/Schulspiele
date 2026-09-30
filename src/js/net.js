@@ -73,31 +73,21 @@
     return {
       players: SS.state.players,
       hostId: SS.state.hostId,
-      gameId: SS.state.gameId,
-      settings: SS.state.settings,
       phase: SS.state.phase,
-      round: SS.state.round,
-      turn: SS.state.turn,
-      scores: SS.state.scores,
-      pub: SS.state.pub,
-      priv: SS.state.priv,
-      lastResult: SS.state.lastResult,
-      syncSeed: SS.state.syncSeed,
-      syncSeq: SS.state.syncSeq,
+      groupName: SS.state.groupName,
+      seed: SS.state.seed,
+      ring: SS.state.ring,
+      assignments: SS.state.assignments,
+      sidequests: SS.state.sidequests,
+      proposals: SS.state.proposals,
+      settings: SS.state.settings,
+      log: SS.state.log.slice(-40),
     };
   }
-  function publicSnapshot() {
-    // ohne priv: einzelne Gäste erhalten ihren geheimen Teil separat
-    const s = wireSnapshot();
-    s.priv = {};
-    return s;
-  }
+  function publicSnapshot() { return wireSnapshot(); }
   function broadcastState() {
     if (SS.state.role !== "host" || !conns.length) return false;
     broadcast({ t: "state", s: publicSnapshot() });
-    conns.forEach((c) => {
-      if (c.pid && SS.state.priv && c.pid in SS.state.priv) sendConn(c, { t: "priv", priv: SS.state.priv[c.pid] });
-    });
     return true;
   }
 
@@ -159,15 +149,17 @@
         SS.emit("net");
         break;
       }
-      case "start": {
-        // Der Host hat die Partie gestartet — Gäste wechseln in die Spielansicht.
-        SS.state.phase = "playing";
-        if (SS.ui && SS.state.route !== "game") SS.ui.go("game");
+      case "deal": {
+        // Der Wirt hat die Aufgaben ausgeteilt — Gäste wechseln zu ihren Aufgaben.
+        SS.state.phase = "running";
+        if (SS.ui && SS.state.route !== "tasks") SS.ui.go("tasks");
+        SS.toast("Deine Aufgaben sind da!", "ok");
         SS.emit("net");
         break;
       }
-      case "priv": {
-        SS.state.priv[SS.state.me] = msg.priv;
+      case "closed": {
+        SS.state.phase = "over";
+        SS.toast("Der Wirt hat den Abend abgeschlossen.", "ok");
         SS.emit("net");
         break;
       }
@@ -211,20 +203,22 @@
         if (!p) p = SS.addPlayer(name, { id: msg.pid || SS.uid(8), connected: true, isHost: false });
         else { p.connected = true; p.name = name; }
         conn.pid = p.id;
-        SS.state.priv[p.id] = SS.state.priv[p.id] || {};
         sendConn(conn, {
           t: "welcome",
           you: p.id,
           hostId: SS.state.hostId,
           code: SS.state.code,
           players: SS.state.players,
-          gameId: SS.state.gameId,
+          groupName: SS.state.groupName,
           phase: SS.state.phase,
+          settings: SS.state.settings,
         });
+        // Wer während des Abends dazukommt, bekommt den vollen Stand.
+        sendConn(conn, { t: "state", s: publicSnapshot() });
         if (SS.store) SS.store.touchMembers(SS.state.players);
         SS.logLine(name + " is dabei.", "ok");
         broadcast({ t: "state", s: publicSnapshot() });
-        if (SS.state.phase === "playing") broadcast({ t: "start" });
+        if (SS.state.phase === "running") broadcast({ t: "deal" });
         SS.emit("net");
         break;
       }
@@ -260,33 +254,23 @@
       case "req": {
         // Gast erbittet kompletten Zustand (z. B. nach Neuverbinden)
         sendConn(conn, { t: "state", s: publicSnapshot() });
-        if (conn.pid && SS.state.priv[conn.pid] !== undefined) sendConn(conn, { t: "priv", priv: SS.state.priv[conn.pid] });
         break;
       }
       case "outbox": {
-        // Nachgereichtes aus der offline verbrachten Zeit.
+        // Nachgereichtes aus der offline verbrachten Zeit: echte Aktionen
+        // (Fotos, Sidequests, Vorschläge), die der Gast nicht loswerden konnte.
         const evts = Array.isArray(msg.events) ? msg.events : [];
         if (!evts.length) return;
         let merges = 0;
         evts.forEach((e) => {
           if (!e || typeof e !== "object") return;
-          if (e.kind === "spielzug" || e.kind === "runde" || e.kind === "sieg") {
-            if (SS.store) SS.store.addChronicle({
-              type: e.kind === "spielzug" ? "runde" : e.kind,
-              groupCode: SS.state.code || null,
-              game: (SS.getMeta(e.gameId) || {}).name || "",
-              round: e.round || 0,
-              who: (SS.player(conn.pid) || {}).name || "Gast",
-              offline: true,
-            });
-            merges++;
-          } else if (e.kind === "punkte" && e.pid) {
-            SS.state.scores[e.pid] = (SS.state.scores[e.pid] || 0) + (e.points || 0);
+          if (e.kind === "aktion" && e.action) {
+            SS.applyActionRaw(conn.pid, e.action, e.payload);
             merges++;
           }
         });
         if (merges) {
-          SS.logLine((SS.player(conn.pid) || {}).name + ": " + merges + " Eintrag/Einträge aus der Offline-Zeit nachgreicht.", "ok");
+          SS.logLine((SS.player(conn.pid) || {}).name + ": " + merges + " Nachweis/Nachweise aus der Offline-Zeit nachgreicht.", "ok");
           broadcast({ t: "state", s: publicSnapshot() });
           SS.emit("net");
         }
@@ -298,9 +282,10 @@
 
   function applyState(s) {
     if (!s) return;
-    ["players", "hostId", "gameId", "settings", "phase", "round", "turn", "scores", "pub", "lastResult", "syncSeed", "syncSeq"].forEach((k) => {
+    ["players", "hostId", "phase", "groupName", "seed", "ring", "assignments", "sidequests", "proposals", "settings"].forEach((k) => {
       if (s[k] !== undefined) SS.state[k] = s[k];
     });
+    if (Array.isArray(s.log) && s.log.length) SS.state.log = s.log;
   }
 
   /* ── Ausgangskorb: offline Gespieltes nachreichen ─────────────────────── */
@@ -318,7 +303,7 @@
     if (!sendToHost({ t: "outbox", events: list })) return false;
     SS.store.clearOutbox();
     SS.state.pending = false;
-    SS.toast(list.length + " offline Gespieltes is nachgreicht worn.", "ok");
+    SS.toast(list.length + " offline Gemachtes is nachgreicht worn.", "ok");
     return true;
   }
   SS.on("net", () => { if (SS.state.role === "guest") setTimeout(flushOutbox, 400); });
@@ -349,10 +334,9 @@
           SS.state.role = "host";
           SS.state.code = code;
           SS.state.hostId = SS.state.me = "host";
-          SS.state.syncSeed = code + ":" + SS.uid(6);
+          SS.state.seed = code + ":" + SS.uid(6);
           // Host selbst als Teilnehmer
           SS.state.players = [];
-          SS.state.scores = {};
           const own = SS.addPlayer(hostName || "Host", { id: "host", isHost: true, connected: true });
           SS.state.me = own.id;
           setStatus("online");

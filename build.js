@@ -18,14 +18,12 @@ const outFile = path.join(root, "index.html");
 const SCRIPTS = [
   "vendor/peerjs.min.js",
   "js/app.js",
+  "js/tasks.js",
+  "js/assign.js",
+  "js/proof.js",
   "js/store.js",
   "js/net.js",
   "js/ui.js",
-  "js/games/content.js",
-  "js/games/registry.js",
-  "js/games/util.js",
-  "js/games/party.js",
-  "js/games/action.js",
   "js/boot.js",
 ];
 
