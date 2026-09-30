@@ -91,11 +91,11 @@
           "Vollsuff — asozial, inklusive Kotzen. Nur wenn alle wollen.",
           "Der Modus begrenzt, welche Aufgaben überhaupt vorkommen.",
         ]),
-        card("Zum Schluss", [
+        card("Chat und Wertung", [
+          "Ein Spielchat für alle — auch Gäste schreiben untereinander.",
           "Am Ende bewertet die Runde die Nachweise der anderen.",
           "Kippt die Mehrheit auf «gilt nicht», ist die Aufgabe ungültig.",
           "Der Wirt kann das unterbinden — niemand hängt an einer Laune.",
-          "Dazu der Abendbericht zum Kopieren.",
         ]),
         card("Ohne Netz", [
           "Der Wirt funktioniert auch ohne Internet.",
