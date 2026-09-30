@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1d3557">
-<meta name="description" content="Schulspiele — klassische Online-Multiplayer-Spiele fuer den Unterricht. Gruppen mit Code erstellen, im selben WLAN verbinden oder direkt am Geraet spielen.">
-<title>Schulspiele — Klassiker fuer die Pause</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%231d3557'/%3E%3Ctext x='50' y='70' font-size='58' text-anchor='middle' fill='%23e9c46a' font-family='Georgia'%3E%26%2310003%3B%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/classic.css">
+<meta name="theme-color" content="#140d08">
+<meta name="description" content="Seidla — die fränkische Wirtshausrunde. Partyspiele für 2 bis 100 Leut: Ich hab noch nie, Bumm, Franken-Quiz und mehr. Runde mit Code aufmachen, läuft auch ohne Netz weiter.">
+<title>Seidla — die fränkische Wirtshausrunde</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%2322150d'/%3E%3Ctext x='50' y='72' font-size='58' text-anchor='middle' fill='%23d9a521' font-family='Georgia'%3E%F0%9F%8D%BA%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/seidla.css">
 </head>
 <body>
 <div id="app">
@@ -15,23 +15,25 @@
   <header id="topbar" class="topbar">
     <div class="topbar-inner">
       <button class="brand" id="brandBtn" title="Zur Startseite">
-        <span class="brand-mark">&#10003;</span>
+        <span class="brand-mark">🍺</span>
         <span class="brand-text">
-          <strong>Schulspiele</strong>
-          <small>Klassiker fuer die Pause</small>
+          <strong>Seidla</strong>
+          <small>Die fränkische Wirtshausrunde</small>
         </span>
       </button>
       <div class="topbar-right">
-        <span id="netBadge" class="net-badge" title="Verbindungsart">Offline bereit</span>
+        <span id="netBadge" class="net-badge" title="Verbindungsart">Läuft am Gerät</span>
+        <button id="wirtBtn" class="btn btn-ghost" title="Wirt-Bereich">Wirt</button>
+        <button id="chronikBtn" class="btn btn-ghost">Chronik</button>
         <button id="helpBtn" class="btn btn-ghost">Anleitung</button>
       </div>
     </div>
   </header>
 
-  <!-- ══ STARTSEITE / LOBBY ═════════════════════════════════════ -->
+  <!-- ══ STARTSEITE / LOBBY / SPIEL ═════════════════════════════ -->
   <main id="view" class="view"></main>
 
-  <!-- ══ MECHANIK-LEISTE (Haeuser, Punkte, Runden) ══════════════ -->
+  <!-- ══ PUNKTE-LEISTE ══════════════════════════════════════════ -->
   <aside id="mechanik" class="mechanik" hidden></aside>
 
   <!-- ══ STATUSZEILE ════════════════════════════════════════════ -->
@@ -47,14 +49,14 @@
 
 <script src="vendor/peerjs.min.js" defer></script>
 <script src="js/app.js" defer></script>
+<script src="js/store.js" defer></script>
 <script src="js/net.js" defer></script>
 <script src="js/ui.js" defer></script>
 <script src="js/games/content.js" defer></script>
 <script src="js/games/registry.js" defer></script>
 <script src="js/games/util.js" defer></script>
-<script src="js/games/board.js" defer></script>
 <script src="js/games/party.js" defer></script>
-<script src="js/games/trivia.js" defer></script>
+<script src="js/games/action.js" defer></script>
 <script src="js/boot.js" defer></script>
 </body>
 </html>

@@ -1,53 +1,114 @@
-# Schulspiele
+# Seidla — die fränkische Wirtshausrunde
 
-Klassische Spiele fuer die Pause und den Unterricht. Laeuft im Browser auf
-iPhone, iPad, Android-Tablet und Laptop — ohne Installation, ohne Konto.
+A Partyspiel-Sammlung für den Samstagabend, den Stammtisch und die ganze
+Wirtshausrunde. Läuft im Browser auf iPhone, iPad, Android-Tablet und Laptop —
+ohne Installation, ohne Konto, ohne Werbung.
 
 **Spielen:** https://dealwirth.github.io/Schulspiele/
 
-## Zwei Wege zu spielen
+Zwei bis hundert Leut, zehn Spiele, ein Abend. Für 18 Jahre und älter gedacht.
 
-**Am selben Gerät.** Das Geraet wandert von Hand zu Hand. Fuer Spiele, bei denen
-alle gleichzeitig antworten (Reaktion, Quiz, Buchstabensalat), wird vor jeder
-Antwort kurz der eigene Name angetippt, damit die Punkte im richtigen Haus landen.
+## Drei Wege zu spielen
 
-**Als Gruppe mit Code.** Eine Person oeffnet eine Gruppe und bekommt einen
-vierstelligen Code. Alle anderen treten damit ueber ihre eigene Adresse bei und
-spielen auf ihrem eigenen Bildschirm. Der Aufbau laeuft ueber WebRTC (PeerJS),
-danach reden die Geraete direkt miteinander. Ein Internetzugang wird fuer den
-Verbindungsaufbau gebraucht; ein gemeinsames WLAN ist empfehlenswert.
+**Runde aufmachen (online).** Ein Gerät wird der Wirt und zeigt einen
+vierstelligen Code, zum Beispiel `K7QP`. Alle anderen tippen den Code unter
+„Mit Code nei" ein und spielen auf ihrem eigenen Bildschirm. Der Aufbau läuft
+über WebRTC (PeerJS), danach reden die Geräte direkt miteinander. Ein
+Internetzugang ist für den Verbindungsaufbau nötig.
 
-> Reines Bluetooth zwischen iPhone und Android ist im Browser nicht moeglich —
-> WebRTC ist der plattformuebergreifende Weg, den iOS und Android beide erlauben.
-> Ohne Internet bleibt der Modus "Am selben Geraet".
+**Am selben Gerät.** Das Gerät wandert von Hand zu Hand. Bei Spielen, wo alle
+gleichzeitig antworten, tippt jeder vorher seinen Namen an, damit die Punkte im
+richtigen Haus landen.
+
+**Ohne Netz weiterspielen.** Reißt die Verbindung ab, läuft der Abend trotzdem
+weiter. Was passiert ist, wandert in den Ausgangskorb und wird automatisch
+nachgereicht, sobald wieder Netz da ist — der Wirt sieht dann in der Chronik,
+was in der Zwischenzeit gespielt wurde.
+
+> Reines Bluetooth zwischen iPhone und Android ist im Browser nicht möglich.
+> WebRTC ist der plattformübergreifende Weg, den iOS und Android beide erlauben.
+> Ohne Internet bleibt der Modus „Am selben Gerät".
 
 ## Die Spiele
 
-| Spiel | Spieler | Art |
+| Spiel | Leut | Art |
 | --- | --- | --- |
-| Tic Tac Toe | 2–4 | Brett, 3×3 oder 4×4 |
-| Vier gewinnt | 2–4 | Brett |
-| Memory | 2–6 | Brett |
-| Nim | 2 | Strategie |
-| Reaktion | 2–8 | Gleichzeitig |
-| Buchstabensalat | 2–8 | Wort, gleichzeitig |
-| Quizduell | 2–8 | Wissen, gleichzeitig |
-| Der Ordnung nach | 2–8 | Wissen, Team |
-| Wer bin ich? | 4–10 | Party |
-| Wer bist du? | 3–10 | Party |
-| Grosse Debatte | 3–10 | Team |
-| Fuenf-Sieben-Fuenf | 2–10 | Wort, Team |
+| Ich hab noch nie | 2–100 | Klassiker zum Einstieg |
+| Wer würde eher | 3–100 | Abstimmung, große Runde |
+| Wahrheit oder Pflicht | 2–100 | Klassiker |
+| Flaschendrehen | 3–100 | Aufgabe für eine Person |
+| Bumm (Bombenspiel) | 3–100 | Action, alle gleichzeitig |
+| Reaktionsduell | 2–100 | Wer war zuerst |
+| Franken-Quiz | 2–100 | Wissen, Dialekt und Bräuche |
+| Zungenbrecher | 2–100 | Wort, laut |
+| Turnierbaum | 4–64 | Wettkampf bis zum Sieger |
+| Chronik | — | Wirtshausbuch mit Auswertung |
 
-## Aufbau
+Dazu im Hintergrund: Punkte über alle Runden, Schluck- oder Aufgabenstrafen
+(einstellbar), ein Abendbericht zum Kopieren und die Wirtshaus-Chronik.
 
-- `src/` — Quellen: `classic.css`, `js/app.js`, `js/net.js`, `js/ui.js`,
-  Spielmodule unter `js/games/`, dazu `vendor/peerjs.min.js`.
-- `index.html` — gebaute, vollstaendig eigenstaendige Fassung (CSS und Skripte
-  inline). Diese Datei ist die veroeffentlichte Seite.
-- `build.js` — erzeugt `index.html` aus `src/`.
+## Der Wirt-Bereich
+
+Der Wirt leitet den Abend. Zugang über „Wirt" in der Kopfzeile mit dem
+Schlüssel `135LowLap`. Damit lässt sich die Runde umbenennen, der Punktestand
+zurücksetzen, Teilnehmer entfernen und am Schluss der Abendbericht
+zusammenstellen.
+
+Ehrlich gesagt: Das ist ein Wirtshaus-Schlüssel, kein Banktresor. Die Seite
+läuft ohne Server im Browser, also findet jeder, der sich auskennt, den
+Schlüssel im Quelltext. Er hält die Runde davon ab, versehentlich im Management
+zu landen — mehr soll er nicht.
+
+## Was am Ende rauskommt
+
+Die Chronik sammelt jeden Abend: wer gewonnen hat, wer wie oft einen Schluck
+kassiert hat, welche Spiele liefen. Daraus entsteht der Abendbericht — eine
+Textzusammenfassung zum Kopieren und in die Gruppe schicken.
+
+Eine Bilderbuch- oder KI-Auswertung ist bewusst noch nicht drin. Die Chronik
+ist so gebaut, dass sie sich später anhängen lässt.
+
+## Technik
+
+- **Ein Bundle.** `node build.js` packt HTML, CSS und alle Skripte in eine
+  einzige `index.html` im Wurzelverzeichnis. Keine Abhängigkeiten zur Laufzeit.
+- **Netzwerk.** PeerJS/WebRTC, Wirt-Gast-Stern. Spielzustand läuft über den Wirt.
+- **Speicher.** localStorage: Profil, Runde, laufende Sitzung, Ausgangskorb,
+  Chronik. Der Ausgangskorb überlebt Neustarts.
+- **Determinismus.** Karten, Würfe und Auslosungen hängen an einem Seed, damit
+  alle Geräte dasselbe sehen, ohne jede Aktion zu übertragen.
+- **Kein Tracking.** Keine Cookies, keine Analysedienste, kein Konto.
+
+## Selbst bauen
 
 ```bash
-node build.js
+node build.js          # erzeugt index.html im Wurzelverzeichnis
 ```
 
-Danach `index.html` direkt im Browser oeffnen oder auf einen Schulserver legen.
+Zum Ausprobieren genügt ein statischer Server im Wurzelverzeichnis:
+
+```bash
+python3 -m http.server 8765
+```
+
+## Dateien
+
+```
+src/index.html           Hülle (Kopfzeile, Ansichten, Dialoge)
+src/css/seidla.css       Design: Wirtshaus, Kupfer, Bierfilz
+src/js/app.js            Zustand, Punkte, Aktionen, Dialoge, Hilfsfunktionen
+src/js/store.js          Speicher, Ausgangskorb, Chronik, Auswertung
+src/js/net.js            Runde aufmachen, Beitritt, Sync, Nachreichen
+src/js/ui.js             Ansichten, Katalog, Lobby, Spielansicht, Wirt-Bereich
+src/js/boot.js           Start, Wiederherstellen, automatisches Nachreichen
+src/js/games/content.js  Texte, Karten, Fragen
+src/js/games/registry.js Katalog und Einstellungen
+src/js/games/party.js    Ich hab noch nie, Wer würde eher, Wahrheit/Pflicht, Flaschendrehen
+src/js/games/action.js   Bumm, Reaktionsduell, Franken-Quiz, Zungenbrecher, Turnierbaum
+src/js/games/util.js     Hilfen für die Spielmodule
+```
+
+## Hinweis
+
+Gedacht für Erwachsene. Es gibt einen Wasser-Modus für alle, die nichts
+trinken — die Strafen sind auf der Startseite umstellbar.

@@ -19,6 +19,7 @@ window.SS = (function () {
         else if (k === "html") node.innerHTML = v;
         else if (k === "style" && typeof v === "object") Object.assign(node.style, v);
         else if (k === "dataset") Object.assign(node.dataset, v);
+        else if (k === "value" && "value" in node) node.value = v;
         else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
         else node.setAttribute(k, v === true ? "" : String(v));
       }
@@ -85,12 +86,12 @@ window.SS = (function () {
   const LS = {
     get(key, fallback) {
       try {
-        const v = localStorage.getItem("schulspiele:" + key);
+        const v = localStorage.getItem("seidla:" + key);
         return v === null ? fallback : JSON.parse(v);
       } catch (e) { return fallback; }
     },
     set(key, val) {
-      try { localStorage.setItem("schulspiele:" + key, JSON.stringify(val)); } catch (e) {}
+      try { localStorage.setItem("seidla:" + key, JSON.stringify(val)); } catch (e) {}
     },
   };
 
@@ -164,6 +165,7 @@ window.SS = (function () {
     role: "solo",             // 'host' | 'guest' | 'solo'
     code: null,
     connection: "offline",    // 'offline' | 'connecting' | 'online' | 'lost'
+    pending: false,           // es liegt was im Ausgangskorb
     // Teilnehmer
     players: [],              // [{id,name,color,connected,isHost,index}]
     hostId: null,
@@ -180,6 +182,8 @@ window.SS = (function () {
     priv: {},                 // geheimer Zustand je Spieler (pid -> Objekt)
     log: [],
     lastResult: null,
+    syncSeq: 0,               // zählt bestätigte Syncs (für Chronik/Offline-Abgleich)
+    syncSeed: null,           // gemeinsamer Zufallskeim einer Partie
   };
 
   const listeners = {};
@@ -240,7 +244,11 @@ window.SS = (function () {
    *  - Host   : Aktion wird lokal ausgeführt
    */
   function act(name, payload) {
-    actAs(activePid(), name, payload);
+    // Spiele ohne festen Zug (z. B. Flaschendrehen, Turnierbaum) handeln
+    // über den Host — dort gibt es keinen aktiven Spieler.
+    let pid = activePid();
+    if (!pid) pid = state.mode === "online" ? state.me : (state.players[0] && state.players[0].id) || null;
+    actAs(pid, name, payload);
   }
   /**
    * Aktion im Namen eines bestimmten Spielers.
@@ -268,7 +276,23 @@ window.SS = (function () {
       toast("Aktion fehlgeschlagen: " + err.message, "err");
     }
     if (isHost()) sync();
+    persist();
     renderCurrent();
+  }
+
+  /**
+   * Zustand nach jeder Aktion sichern. Ohne Netz geht die Aktion zusätzlich
+   * in den Ausgangskorb und wird beim nächsten Kontakt nachgereicht.
+   */
+  function persist() {
+    if (!SS.store) return;
+    SS.store.saveSession(state);
+    if (state.phase === "playing" || state.phase === "over") {
+      if (state.mode === "online" && state.role === "guest" && state.connection !== "online") {
+        state.pending = true;
+        SS.store.queue({ kind: "spielzug", gameId: state.gameId, round: state.round, at: Date.now() });
+      }
+    }
   }
 
   function currentGame() {
@@ -333,6 +357,17 @@ window.SS = (function () {
         state.phase = "over";
         state.lastResult = result || null;
         logLine("Partie beendet.");
+        if (SS.store) {
+          const meta = getMeta(state.gameId);
+          const order = state.players.slice().sort((a, b) => (state.scores[b.id] || 0) - (state.scores[a.id] || 0));
+          if (order[0] && (state.scores[order[0].id] || 0) > 0) {
+            SS.store.addChronicle({
+              type: "sieg", groupCode: state.code || null, group: !!state.code,
+              game: meta ? meta.name : "", who: order[0].name, points: state.scores[order[0].id] || 0,
+            });
+          }
+        }
+        persist();
       },
       reset() {
         state.phase = "lobby";
@@ -370,7 +405,7 @@ window.SS = (function () {
     state, on, emit, player, me, alive, myPid, isHost, connectedCount,
     logLine, addScore, setScore, addPlayer, removePlayer,
     act, actAs, applyAction, applyActionRaw: applyAction, currentGame, makeCtx, sync, net,
-    isSimultaneous, activePid, setRenderCurrent, renderCurrent,
+    isSimultaneous, activePid, setRenderCurrent, renderCurrent, persist,
     GAMES, IMPL, registerGame, registerImpl, getMeta,
   };
 })();

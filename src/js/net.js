@@ -1,10 +1,13 @@
 /* ==========================================================================
-   Schulspiele — Netzwerkschicht
-   Gruppen mit Code: der Host öffnet eine "Gruppe", alle anderen treten mit dem
-   4-Zeichen-Code bei. Transport ist WebRTC (PeerJS) — Geräteübergreifend
-   (iPhone, iPad, Android-Tablet, Laptop). Für den Verbindungsaufbau wird der
-   öffentliche PeerJS-Broker genutzt, danach läuft der Datenverkehr direkt.
-   Ohne Internet bleibt das Spiel am selben Gerät (klassische Übergabe).
+   Seidla — Netzwerkschicht
+   Der Host öffnet eine "Runde", alle anderen treten mit dem 4-Zeichen-Code bei.
+   Transport ist WebRTC (PeerJS) — Geräteübergreifend (iPhone, iPad, Android,
+   Laptop). Für den Verbindungsaufbau wird der öffentliche PeerJS-Broker
+   genutzt, danach läuft der Datenverkehr direkt.
+
+   Reißt die Verbindung ab, wird trotzdem weitergespielt: Der Ausgangskorb
+   sammelt alles, was passiert ist, und schickt es beim nächsten Kontakt in
+   einem Zug nach. Nichts geht verloren.
    ========================================================================== */
 (function () {
   "use strict";
@@ -12,7 +15,7 @@
 
   const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // ohne I/O/0/1
   const CODE_LEN = 4;
-  const PREFIX = "schulspiele-w4-";
+  const PREFIX = "seidla-";
   const BROKER = { host: "0.peerjs.com", port: 443, path: "/", secure: true, key: "peerjs" };
 
   function newCode() {
@@ -79,6 +82,8 @@
       pub: SS.state.pub,
       priv: SS.state.priv,
       lastResult: SS.state.lastResult,
+      syncSeed: SS.state.syncSeed,
+      syncSeq: SS.state.syncSeq,
     };
   }
   function publicSnapshot() {
@@ -109,7 +114,7 @@
     if (SS.state.role === "host") {
       if (conn.pid) {
         SS.removePlayer(conn.pid);
-        SS.logLine((SS.player(conn.pid) || {}).name + " hat die Gruppe verlassen.");
+        SS.logLine((SS.player(conn.pid) || {}).name + " hat die Runde verlassen.");
         broadcast({ t: "state", s: publicSnapshot() });
         SS.emit("net");
       }
@@ -118,7 +123,8 @@
     } else {
       if (conn === hostConn) {
         setStatus("lost");
-        SS.toast("Verbindung zur Gruppe verloren.", "err");
+        SS.toast("Verbindung zur Runde verloren. Es geht am Gerät weiter — nachgereicht wird später.", "err");
+        SS.state.pending = true;
         SS.emit("net");
       }
     }
@@ -197,13 +203,13 @@
   function handleHostIncoming(conn, msg) {
     switch (msg.t) {
       case "hello": {
-        if (SS.state.phase !== "lobby") {
-          sendConn(conn, { t: "kick", reason: "Die Partie läuft bereits. Bitte später erneut versuchen." });
-          setTimeout(() => { try { conn.close(); } catch (e) {} }, 300);
-          return;
-        }
+        // Wiedereintritt ist ausdrücklich erlaubt: Wer während einer Partie
+        // die Verbindung verliert, soll wieder reinfinden — der Punktestand
+        // steht ohnehin am Host. Neue Gäste bekommen den laufenden Stand.
         const name = String(msg.name || "Gast").slice(0, 22);
-        const p = SS.addPlayer(name, { id: msg.pid || SS.uid(8), connected: true, isHost: false });
+        let p = msg.pid && SS.player(msg.pid);
+        if (!p) p = SS.addPlayer(name, { id: msg.pid || SS.uid(8), connected: true, isHost: false });
+        else { p.connected = true; p.name = name; }
         conn.pid = p.id;
         SS.state.priv[p.id] = SS.state.priv[p.id] || {};
         sendConn(conn, {
@@ -215,8 +221,10 @@
           gameId: SS.state.gameId,
           phase: SS.state.phase,
         });
-        SS.logLine(name + " ist der Gruppe beigetreten.", "ok");
+        if (SS.store) SS.store.touchMembers(SS.state.players);
+        SS.logLine(name + " is dabei.", "ok");
         broadcast({ t: "state", s: publicSnapshot() });
+        if (SS.state.phase === "playing") broadcast({ t: "start" });
         SS.emit("net");
         break;
       }
@@ -255,16 +263,65 @@
         if (conn.pid && SS.state.priv[conn.pid] !== undefined) sendConn(conn, { t: "priv", priv: SS.state.priv[conn.pid] });
         break;
       }
+      case "outbox": {
+        // Nachgereichtes aus der offline verbrachten Zeit.
+        const evts = Array.isArray(msg.events) ? msg.events : [];
+        if (!evts.length) return;
+        let merges = 0;
+        evts.forEach((e) => {
+          if (!e || typeof e !== "object") return;
+          if (e.kind === "spielzug" || e.kind === "runde" || e.kind === "sieg") {
+            if (SS.store) SS.store.addChronicle({
+              type: e.kind === "spielzug" ? "runde" : e.kind,
+              groupCode: SS.state.code || null,
+              game: (SS.getMeta(e.gameId) || {}).name || "",
+              round: e.round || 0,
+              who: (SS.player(conn.pid) || {}).name || "Gast",
+              offline: true,
+            });
+            merges++;
+          } else if (e.kind === "punkte" && e.pid) {
+            SS.state.scores[e.pid] = (SS.state.scores[e.pid] || 0) + (e.points || 0);
+            merges++;
+          }
+        });
+        if (merges) {
+          SS.logLine((SS.player(conn.pid) || {}).name + ": " + merges + " Eintrag/Einträge aus der Offline-Zeit nachgreicht.", "ok");
+          broadcast({ t: "state", s: publicSnapshot() });
+          SS.emit("net");
+        }
+        break;
+      }
       default: break;
     }
   }
 
   function applyState(s) {
     if (!s) return;
-    ["players", "hostId", "gameId", "settings", "phase", "round", "turn", "scores", "pub", "lastResult"].forEach((k) => {
+    ["players", "hostId", "gameId", "settings", "phase", "round", "turn", "scores", "pub", "lastResult", "syncSeed", "syncSeq"].forEach((k) => {
       if (s[k] !== undefined) SS.state[k] = s[k];
     });
   }
+
+  /* ── Ausgangskorb: offline Gespieltes nachreichen ─────────────────────── */
+  /**
+   * Was ohne Netz passiert ist, liegt in SS.store.outbox(). Sobald wieder
+   * Kontakt zum Host besteht, geht der ganze Korb in einem Zug raus und
+   * wird danach geleert. Der Host verbucht die Einträge in seiner Chronik.
+   */
+  function flushOutbox() {
+    if (!SS.store) return false;
+    if (SS.state.role !== "guest") return false;
+    if (SS.state.connection !== "online") return false;
+    const list = SS.store.outbox();
+    if (!list.length) return false;
+    if (!sendToHost({ t: "outbox", events: list })) return false;
+    SS.store.clearOutbox();
+    SS.state.pending = false;
+    SS.toast(list.length + " offline Gespieltes is nachgreicht worn.", "ok");
+    return true;
+  }
+  SS.on("net", () => { if (SS.state.role === "guest") setTimeout(flushOutbox, 400); });
 
   /* ── Gruppe erstellen (Host) ──────────────────────────────────────────── */
   function createGroup(hostName) {
@@ -292,13 +349,22 @@
           SS.state.role = "host";
           SS.state.code = code;
           SS.state.hostId = SS.state.me = "host";
+          SS.state.syncSeed = code + ":" + SS.uid(6);
           // Host selbst als Teilnehmer
           SS.state.players = [];
           SS.state.scores = {};
           const own = SS.addPlayer(hostName || "Host", { id: "host", isHost: true, connected: true });
           SS.state.me = own.id;
           setStatus("online");
-          SS.logLine("Gruppe " + code + " geöffnet. Warte auf Beitritte …", "ok");
+          // Runde bleibt am Gerät — taucht nach Neustart oder ohne Netz wieder auf.
+          if (SS.store) {
+            SS.store.saveGroup({
+              code: code, name: (SS.store.loadGroup() || {}).name || "Wirtshausrunde",
+              role: "host", lastHost: true, members: [],
+            });
+            SS.store.touchMembers(SS.state.players);
+          }
+          SS.logLine("Runde " + code + " geöffnet. Warte auf Beitritte …", "ok");
           resolve({ code });
           SS.emit("net");
         });
@@ -340,11 +406,16 @@
     return new Promise((resolve, reject) => {
       if (!ensureLib()) return reject(new Error("Netzwerk-Bibliothek konnte nicht geladen werden."));
       code = String(code || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-      if (code.length !== CODE_LEN) return reject(new Error("Bitte einen " + CODE_LEN + "-stelligen Gruppencode eingeben."));
+      if (code.length !== CODE_LEN) return reject(new Error("Bitte einen " + CODE_LEN + "-stelligen Rundencode eingeben."));
       setStatus("connecting");
       SS.state.code = code;
 
-      const myPid = SS.uid(10);
+      // Feste Kennung pro Gerät: erlaubt den Wiedereintritt nach einem Abbruch.
+      let myPid = SS.store ? SS.store.read("devicePid", null) : null;
+      if (!myPid) {
+        myPid = SS.uid(10);
+        if (SS.store) SS.store.write("devicePid", myPid);
+      }
       peer = new window.Peer({
         debug: 1,
         config: { iceServers: [
@@ -373,6 +444,12 @@
           SS.state.mode = "online";
           SS.state.role = "guest";
           SS.state.me = myPid;
+          if (SS.store) {
+            SS.store.saveGroup({
+              code: code, name: (SS.store.loadGroup() || {}).name || "Wirtshausrunde",
+              role: "guest", lastHost: false,
+            });
+          }
           sendConn(conn, { t: "hello", name: guestName || "Gast", pid: myPid });
           resolve({ code: code });
         });
@@ -402,6 +479,19 @@
           reject(new Error("Der Verbindungsdienst ist gerade nicht erreichbar. Nutze so lange den Modus «Am selben Gerät»."));
         }
       });
+    });
+  }
+
+  /* ── Wieder in die Runde finden (nach Verbindungsabbruch) ─────────────── */
+  function rejoin(code, name) {
+    if (SS.state.connection === "connecting") return Promise.reject(new Error("läuft schon"));
+    setStatus("connecting", "Neu verbinden …");
+    return joinGroup(code, name).then(() => {
+      SS.toast("Wieder in der Runde.", "ok");
+      return true;
+    }).catch(() => {
+      setStatus("lost");
+      return false;
     });
   }
 
@@ -449,7 +539,7 @@
 
   /* ── Export ───────────────────────────────────────────────────────────── */
   Object.assign(SS.net, {
-    init, available, setStatus,
+    init, available, setStatus, flushOutbox, rejoin,
     createGroup, joinGroup, leave,
     sendToHost, broadcastState, broadcast, sendTo,
   });
