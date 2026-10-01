@@ -108,6 +108,9 @@ window.SS = (function () {
     box.appendChild(bodyNode);
     const act = el("div", { class: "modal-actions" });
     (actions || [{ label: "Zumachen" }]).forEach((a) => {
+      // Ein fertiger Knopf darf auch direkt übergeben werden — dann kann der
+      // Dialog selbst Fortschritt und Sperre daran hängen.
+      if (a.node) { act.appendChild(a.node); return; }
       act.appendChild(
         el("button", {
           class: "btn " + (a.kind === "primary" ? "btn-gold" : a.kind === "danger" ? "btn-danger" : "btn-outline"),
@@ -182,6 +185,7 @@ window.SS = (function () {
       confirmMode: "self",    // Jeder hakt seine eigene Aufgabe selbst ab.
     },
     reviews: {},              // aid -> { ok:[pid], bad:[pid] }
+    endedAt: null,            // wann der Wirt den Abend beendet hat
     log: [],
   };
 
@@ -500,6 +504,89 @@ window.SS = (function () {
     return true;
   }
 
+  /* ── Abend beenden ────────────────────────────────────────────────────── */
+  /**
+   * Der Wirt beendet den Abend. Das ist mehr als ein Schalter: Der Stand
+   * wird eingefroren (damit das Ergebnis feststeht), im Speicher festgehalten
+   * und an alle Geräte verteilt. Danach sieht jeder die Abschlussansicht mit
+   * Endstand — auch wer erst später wieder Netz hat.
+   */
+  function endEvening() {
+    if (state.phase === "over") return false;
+    state.phase = "over";
+    state.endedAt = Date.now();
+    state.route = "end";
+    logLine("Der Wirt hat den Abend beendet.", "ok");
+    if (SS.store) SS.store.addChronicle({
+      type: "ende", groupCode: state.code || null, group: !!state.code,
+      who: null, game: state.groupName,
+      task: "Abend beendet (" + alive().length + " Leut, " + allProofs().length + " Nachweise)",
+    });
+    persist();
+    if (isHost()) {
+      sync();
+      if (state.mode === "online") net.broadcast({ t: "closed", endedAt: state.endedAt });
+    }
+    return true;
+  }
+
+  /** Zurück in den laufenden Abend — falls zu früh beendet wurde. */
+  function reopenEvening() {
+    if (state.phase !== "over") return false;
+    state.phase = "review";
+    state.endedAt = null;
+    logLine("Der Wirt hat den Abend wieder aufgemacht.", "");
+    persist();
+    if (isHost()) {
+      sync();
+      if (state.mode === "online") net.broadcast({ t: "review" });
+    }
+    return true;
+  }
+
+  /** Kennzahlen für die Abschlussansicht. */
+  function summary() {
+    const r = ranking();
+    const tasks = Object.values(state.assignments).reduce((n, a) => n + a.length, 0);
+    const confirmed = Object.values(state.assignments).reduce((n, a) => n + a.filter((t) => t.confirmed && !isVoid(t)).length, 0);
+    const voided = Object.values(state.assignments).reduce((n, a) => n + a.filter((t) => t.voided).length, 0);
+    const sidequests = state.sidequests.filter((q) => Object.keys(q.done || {}).length).length;
+    return {
+      players: alive().length,
+      tasks: tasks,
+      confirmed: confirmed,
+      voided: voided,
+      sidequests: sidequests,
+      proofs: allProofs().length,
+      best: r[0] || null,
+      ranking: r,
+      endedAt: state.endedAt,
+    };
+  }
+
+  /** Die Abschlusszeilen — auch als Text zum Verschicken. */
+  function buildSummary() {
+    const s = summary();
+    const L = [];
+    L.push("SEIDLA — Ende des Abends");
+    L.push("Runde: " + state.groupName + (state.code ? " (" + state.code + ")" : ""));
+    if (s.endedAt) L.push("Beendet: " + new Date(s.endedAt).toLocaleString("de-DE"));
+    L.push("");
+    L.push(s.players + " Leut · " + s.confirmed + " von " + s.tasks + " Aufgaben erledigt · " + s.proofs + " Nachweise");
+    if (s.sidequests) L.push(s.sidequests + " Sidequests geschafft");
+    if (s.voided) L.push(s.voided + " Aufgabe(n) für ungültig erklärt");
+    L.push("");
+    if (s.ranking.length) {
+      L.push("ENDSTAND");
+      s.ranking.forEach((x, i) => {
+        L.push((i + 1) + ". " + x.name + " — " + x.points + " Punkte" + (x.done ? " (" + x.done + "/" + x.total + ")" : ""));
+      });
+      L.push("");
+      L.push("Glückwunsch an " + s.ranking[0].name + "!");
+    }
+    return L.join("\n");
+  }
+
   /** Welche Aufgaben stehen zur Bewertung? Alles Bestätigte. */
   function reviewable(exceptPid) {
     const out = [];
@@ -708,6 +795,8 @@ window.SS = (function () {
     dealTasks, act, actAs, applyAction, applyActionRaw: applyAction,
     // Wertung
     startReview, reviewOf, rate, setVoid, clearFlags, reviewable,
+    // Abend beenden
+    endEvening, reopenEvening, summary, buildSummary,
     // Chat
     sendChat, receiveChat,
     sync, net, persist, setRenderCurrent, renderCurrent,

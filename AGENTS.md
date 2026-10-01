@@ -100,8 +100,31 @@ Sie sind per `.gitignore` ausgenommen und gehören nicht ins Repository.
   Upload, Album bei allen gleich, Nachzügler bekommt alles nach.
 - `_repro.mjs` — die beiden gemeldeten Fehler (Gast-Foto kommt nicht an,
   Album zeigt keine Bilder).
+- `_abend.mjs` — 34 Prüfungen zu drei Themen: Aufgabenliste (nur Bilder,
+  keine Videos, Kennungen eindeutig, jede Kategorie in jedem Modus belegt),
+  Beitrittsdialog (bleibt offen, zeigt Fortschritt, nennt Fehler, Knopf
+  gesperrt) und Abend beenden (Endstand beim Wirt und beim Gast, gleicher
+  Endzeitpunkt, überlebt Neustart, wieder aufmachbar).
 - `_live.mjs` — dasselbe gegen GitHub Pages.
 - `_dbg.mjs` — Wegwerfskript zum Nachschauen.
+
+## Ende des Abends
+
+`SS.endEvening()` setzt `phase = "over"`, merkt sich `endedAt` und schaltet
+die Ansicht auf `end`. Der Endstand wird als `closed` mitgeschickt; der Gast
+springt von selbst dorthin. Damit er den Neustart überlebt, muss `endedAt`
+an drei Stellen mit: im Zustand (`net.js`), im Speicherabbild (`store.js`)
+und in `SESSION_KEYS` (`boot.js`). Fehlt eine davon, ist der Endstand nach
+dem Neuladen weg.
+
+Der Gast ruft nach jedem empfangenen Zustand `SS.persist()` — vorher behielt
+er ihn nur im Speicher und lud nach einem Neustart den alten Stand.
+
+## Aufgaben
+
+Alle Aufgaben verlangen einen Bild-Nachweis; Video gibt es nicht. Wer eine
+Aufgabe ergänzt, hängt „Foto!" an, sonst fällt sie im Test durch. Neue
+Aufgaben brauchen eine noch nicht vergebene Kennung — `_abend.mjs` prüft das.
 
 ## Nachrichten und Bilder
 

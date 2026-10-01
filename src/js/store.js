@@ -342,6 +342,7 @@
       mode: state.mode,
       role: state.role,
       phase: state.phase,
+      endedAt: state.endedAt || null,
       seed: state.seed,
       modeId: state.settings && state.settings.modeId,
       ring: state.ring,
@@ -356,7 +357,7 @@
   }
   function saveSession(state) {
     if (!state || (!state.seed && !state.code)) return;
-    if (state.phase !== "running" && state.phase !== "over") return;
+    if (state.phase === "lobby") return;
     put("session", snapshot(state));
   }
   function loadSession() { return get("session", null); }

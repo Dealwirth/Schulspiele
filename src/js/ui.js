@@ -57,8 +57,11 @@
     ]);
     const right = el("div", { class: "top-right" }, [
       el("span", { class: "net-badge", id: "netBadge", text: s.connection === "online" ? "Verbunden" : "Am Gerät" }),
-      s.phase !== "lobby" ? btn("Aufgaben", { kind: "ghost", cls: "tiny", onClick: () => go("tasks") }) : null,
-      s.phase !== "lobby" && s.settings.review ? btn("Wertung", { kind: "ghost", cls: "tiny", onClick: () => go("review") }) : null,
+      s.phase === "over"
+        ? btn("Endstand", { kind: "ghost", cls: "tiny", onClick: () => go("end") })
+        : null,
+      s.phase !== "lobby" && s.phase !== "over" ? btn("Aufgaben", { kind: "ghost", cls: "tiny", onClick: () => go("tasks") }) : null,
+      s.phase !== "lobby" && s.phase !== "over" && s.settings.review ? btn("Wertung", { kind: "ghost", cls: "tiny", onClick: () => go("review") }) : null,
       s.phase !== "lobby" ? btn("Album", { kind: "ghost", cls: "tiny", onClick: () => go("album") }) : null,
       s.settings.chat !== false ? btn("Chat", { kind: "ghost", cls: "tiny", id: "chatBtn", onClick: () => go("chat") }) : null,
       s.phase !== "lobby" && SS.isHost() ? btn("Wirt", { kind: "ghost", cls: "tiny", id: "wirtBtn", onClick: openWirtPanel }) : null,
@@ -159,29 +162,84 @@
     const nameIn = el("input", { type: "text", value: prof.name || "", placeholder: "Dein Name", maxlength: 22 });
     const codeIn = el("input", { type: "text", value: (prefill || SS.state.code || ""), placeholder: "z. B. K7QP", maxlength: 4, class: "code-input" });
     codeIn.style.textTransform = "uppercase";
+    // Der Code darf direkt aus der Zwischenablage kommen — am Handy tippt
+    // sich ein vierstelliger Code sonst schlecht.
+    codeIn.addEventListener("paste", (e) => {
+      const t = (e.clipboardData || window.clipboardData).getData("text") || "";
+      const m = t.match(/[A-Za-z0-9]{4}/);
+      if (m) { e.preventDefault(); codeIn.value = m[0].toUpperCase(); }
+    });
     const netOk = SS.net.available();
+
+    // Rückmeldung im Dialog selbst. Wichtig: Der Dialog bleibt offen, bis die
+    // Anmeldung wirklich durch ist. Vorher verschwand er und man stand ohne
+    // Erklärung auf der Lobby — als hätte es nicht geklappt.
+    const status = el("p", { class: "join-status", hidden: true });
+
     const body = el("div", {}, [
       field("Dein Name", nameIn),
       field("Rundencode", codeIn),
       el("p", { class: "muted small", text: netOk
         ? "Der Code steht beim Wirt — oder du scannst dort den QR-Code."
         : "Gerade ist kein Verbindungsdienst erreichbar. Du kannst trotzdem am selben Gerät mitspielen — dann wandert das Handy." }),
+      status,
     ]);
+
+    const joinBtn = el("button", { class: "btn btn-gold", text: netOk ? "Beitreten" : "Am Gerät mitspielen" });
+
+    function say(text, kind) {
+      status.hidden = false;
+      status.className = "join-status " + (kind || "");
+      status.innerHTML = "";
+      status.appendChild(el("span", { class: "spin" }));
+      status.appendChild(el("span", { text: text }));
+    }
+
+    function idle() {
+      joinBtn.disabled = false;
+      joinBtn.textContent = netOk ? "Beitreten" : "Am Gerät mitspielen";
+    }
+
+    joinBtn.addEventListener("click", () => {
+      const nm = nameIn.value.trim();
+      if (!nm) { SS.toast("Wie heißt du?", "err"); nameIn.focus(); return; }
+      SS.store.saveProfile({ name: nm, seen: true });
+
+      if (!netOk) { SS.closeModal(); joinLocal(nm); return; }
+
+      const code = codeIn.value.trim().toUpperCase();
+      if (code.length !== 4) { SS.toast("Der Code hat vier Zeichen.", "err"); codeIn.focus(); return; }
+
+      // Dialog bleibt offen, Knopf sperrt, Fortschritt läuft.
+      joinBtn.disabled = true;
+      joinBtn.textContent = "Verbinde …";
+      say("Suche Runde " + code + " …");
+
+      SS.net.joinGroup(code, nm, {
+        onStep: (step) => {
+          if (step === "broker") say("Verbindungsdienst gefunden. Suche den Wirt …");
+          if (step === "host") say("Wirt gefunden. Warte auf die Aufnahme …");
+        },
+      }).then(() => {
+        say("Dabei! Deine Aufgaben kommen gleich.", "ok");
+        setTimeout(() => {
+          SS.closeModal();
+          SS.toast("Du bist dabei!", "ok");
+          go(SS.state.phase === "running" ? "tasks" : SS.state.phase === "over" ? "end" : "lobby");
+        }, 450);
+      }).catch((e) => {
+        idle();
+        say(e.message, "err");
+        SS.toast(e.message, "err");
+      });
+    });
+
     SS.modal("Beitreten", body, [
       { label: "Abbrechen" },
-      {
-        label: netOk ? "Beitreten" : "Am Gerät mitspielen", kind: "primary", onClick: () => {
-          const nm = nameIn.value.trim();
-          if (!nm) { SS.toast("Wie heißt du?", "err"); return false; }
-          SS.store.saveProfile({ name: nm, seen: true });
-          if (!netOk) { joinLocal(nm); return; }
-          const code = codeIn.value.trim().toUpperCase();
-          if (code.length !== 4) { SS.toast("Der Code hat vier Zeichen.", "err"); return false; }
-          joinOnline(code, nm);
-          return false;
-        },
-      },
+      { label: "Beitreten", kind: "primary", node: joinBtn },
     ]);
+    if (!nameIn.value) setTimeout(() => nameIn.focus(), 60);
+    else setTimeout(() => codeIn.focus(), 60);
   }
 
   function joinLocal(name) {
@@ -190,17 +248,6 @@
     else SS.addPlayer(name, {});
     SS.toast("Am Gerät dabei. Aufgaben kommen, sobald der Wirt austeilt.", "ok");
     go("lobby");
-  }
-
-  function joinOnline(code, name) {
-    SS.state.mode = "online"; SS.state.code = code; SS.state.role = "guest";
-    SS.toast("Verbinde mit Runde " + code + " …");
-    SS.net.joinGroup(code, name).then(() => {
-      SS.toast("Du bist dabei!", "ok");
-      go(SS.state.phase === "running" ? "tasks" : "lobby");
-    }).catch((e) => {
-      SS.toast(e.message, "err");
-    });
   }
 
   /* ── Lobby ────────────────────────────────────────────────────────────── */
@@ -241,8 +288,28 @@
         el("p", { class: "muted", text: "Der Wirt stellt gerade ein. Sobald er austeilt, stehen deine Aufgaben hier." }),
       ]),
       SS.state.settings.chat !== false ? chatTeaser() : null,
+      activityFeed(),
     ]);
     return el("div", { class: "view view-lobby" }, [topbar(), body, footer()]);
+  }
+
+  /**
+   * Was gerade passiert. Das Protokoll wurde bisher nur gefüllt und nie
+   * gezeigt — dabei ist genau das der Reiz am gemeinsamen Abend.
+   */
+  function activityFeed(limit) {
+    const log = (SS.state.log || []).slice(-(limit || 12)).reverse();
+    if (!log.length) return el("div");
+    return el("section", { class: "panel feed-panel" }, [
+      el("div", { class: "panel-head" }, [
+        el("h2", { text: "Was gerade läuft" }),
+        el("span", { class: "live-dot", title: "läuft" }),
+      ]),
+      el("ul", { class: "feed" }, log.map((l) => el("li", { class: "feed-item " + (l.kind || "") }, [
+        el("span", { class: "feed-at", text: new Date(l.t).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) }),
+        el("span", { class: "feed-text", text: l.text }),
+      ]))),
+    ]);
   }
 
   /** Code groß anzeigen, mit QR-Bild zum Abscannen. */
@@ -430,6 +497,7 @@
       ]));
     }
     body.appendChild(sidequestPanel(mePid));
+    body.appendChild(activityFeed(8));
     return el("div", { class: "view" }, [topbar(), body, footer()]);
   }
 
@@ -701,17 +769,15 @@
 
     const host = SS.isHost();
     body.appendChild(el("div", { class: "row-actions" }, [
-      host && s.phase !== "review" ? btn("Wertung starten", { kind: "primary", onClick: () => { SS.startReview(); go("review"); } }) : null,
-      host && s.phase === "review" ? btn("Wertung beenden", { kind: "primary", onClick: () => {
-        s.phase = "over";
-        SS.logLine("Der Wirt hat die Wertung beendet.", "ok");
-        if (s.mode === "online") SS.net.broadcast({ t: "closed" });
-        SS.sync();
-        SS.toast("Wertung beendet.", "ok");
-        go("album");
+      host && s.phase !== "review" && s.phase !== "over" ? btn("Wertung starten", { kind: "primary", onClick: () => { SS.startReview(); go("review"); } }) : null,
+      host && s.phase === "review" ? btn("Wertung beenden und Abend schließen", { kind: "primary", onClick: () => {
+        if (!confirm("Wertung beenden und den Abend schließen? Danach steht der Endstand fest.")) return;
+        SS.endEvening();
+        SS.toast("Abend beendet.", "ok");
+        go("end");
       } }) : null,
       btn("Album ansehen", { onClick: () => go("album") }),
-      btn("Zurück", { onClick: () => go(s.phase === "lobby" ? "lobby" : "tasks") }),
+      btn("Zurück", { onClick: () => go(s.phase === "lobby" ? "lobby" : s.phase === "over" ? "end" : "tasks") }),
     ]));
     return el("div", { class: "view" }, [topbar(), body, footer()]);
   }
@@ -845,9 +911,90 @@
     }
     body.appendChild(el("div", { class: "row-actions" }, [
       btn("Bericht anzeigen", { kind: "primary", onClick: openReport }),
-      btn("Zurück", { onClick: () => go(SS.state.phase === "lobby" ? "lobby" : "tasks") }),
+      SS.state.phase === "over" ? btn("Zum Endstand", { onClick: () => go("end") }) : null,
+      btn("Zurück", { onClick: () => go(SS.state.phase === "lobby" ? "lobby" : SS.state.phase === "over" ? "end" : "tasks") }),
     ]));
     return el("div", { class: "view" }, [topbar(), body, footer()]);
+  }
+
+  /* ── Ende des Abends ──────────────────────────────────────────────────── */
+  /**
+   * Der Endstand. Er erscheint, sobald der Wirt den Abend beendet — bei allen
+   * gleichzeitig. Damit ist der Abend wirklich zu Ende und nicht bloß ein
+   * Schalter, den niemand sieht.
+   */
+  function viewEnd() {
+    const s = SS.state;
+    const sum = SS.summary();
+    const r = sum.ranking;
+    const host = SS.isHost();
+    const body = el("div", { class: "wrap end-wrap" });
+
+    body.appendChild(el("section", { class: "end-head" }, [
+      el("p", { class: "end-kicker", text: "Der Abend ist zu Ende" }),
+      el("h1", { text: s.groupName || "Wirtshausrunde" }),
+      s.code ? pill("Runde " + s.code, "ghost") : null,
+      sum.endedAt ? el("p", { class: "muted small", text: "Beendet am " + new Date(sum.endedAt).toLocaleString("de-DE") }) : null,
+    ]));
+
+    if (sum.best) {
+      body.appendChild(el("section", { class: "end-winner" }, [
+        avatar(SS.player(sum.best.pid) || { name: sum.best.name, color: sum.best.color }, "big"),
+        el("div", {}, [
+          el("p", { class: "muted small", text: "Sieger des Abends" }),
+          el("h2", { text: sum.best.name }),
+          el("p", { class: "end-points", text: sum.best.points + " Punkte" }),
+        ]),
+      ]));
+    }
+
+    body.appendChild(el("section", { class: "panel" }, [
+      el("div", { class: "stat-row" }, [
+        stat("Dabei", String(sum.players)),
+        stat("Aufgaben", sum.confirmed + " / " + sum.tasks),
+        stat("Nachweise", String(sum.proofs)),
+        stat("Sidequests", String(sum.sidequests)),
+      ]),
+    ]));
+
+    if (r.length) {
+      body.appendChild(el("section", { class: "panel" }, [
+        el("div", { class: "panel-head" }, [el("h2", { text: "Endstand" }), pill(String(r.length) + " Leut", "ghost")]),
+        el("div", { class: "table-scroll" }, [el("table", { class: "rank-table" }, [
+          el("thead", {}, [el("tr", {}, [
+            el("th", { text: "#" }), el("th", { text: "Name" }), el("th", { text: "Punkte" }),
+            el("th", { text: "Aufgaben" }), el("th", { text: "Sidequests" }),
+          ])]),
+          el("tbody", {}, r.map((x, i) => el("tr", { class: i === 0 ? "rank-first" : "" }, [
+            el("td", { text: String(i + 1) }),
+            el("td", {}, [avatar(SS.player(x.pid) || { name: x.name, color: x.color }, "tiny"), el("span", { text: " " + x.name })]),
+            el("td", { text: String(x.points) }),
+            el("td", { text: x.done + " / " + x.total }),
+            el("td", { text: String(x.sidequests || 0) }),
+          ]))),
+        ])]),
+      ]));
+    }
+
+    const acts = el("div", { class: "row-actions" }, [
+      btn("Album ansehen", { kind: "primary", onClick: () => go("album") }),
+      btn("Bericht kopieren", { onClick: () => { copyText(SS.buildSummary()); SS.toast("Endstand kopiert.", "ok"); } }),
+      host ? btn("Abend wieder aufmachen", { onClick: () => {
+        if (!confirm("Den Abend wieder aufmachen? Alle können dann weiterspielen.")) return;
+        SS.reopenEvening();
+        SS.toast("Der Abend läuft wieder.", "ok");
+        go("tasks");
+      } }) : null,
+    ]);
+    body.appendChild(acts);
+
+    const report = SS.buildSummary();
+    body.appendChild(el("details", { class: "end-text" }, [
+      el("summary", { text: "Als Text zum Verschicken" }),
+      el("textarea", { class: "report-text", readonly: true, value: report }),
+    ]));
+
+    return el("div", { class: "view view-end" }, [topbar(), body, footer()]);
   }
 
   /* ── Bericht ──────────────────────────────────────────────────────────── */
@@ -947,14 +1094,22 @@
     ]));
     box.appendChild(el("div", { class: "row-actions" }, [
       btn("Aufgaben neu austeilen", { onClick: () => { SS.dealTasks(); SS.toast("Neu ausgeteilt.", "ok"); SS.renderCurrent(); } }),
-      btn("Wertung starten", { kind: "primary", onClick: () => { SS.startReview(); SS.closeModal(); go("review"); } }),
-      btn("Abend abschließen", { onClick: () => {
-        s.phase = "over";
-        SS.logLine("Der Wirt hat den Abend abgeschlossen.", "ok");
-        if (s.mode === "online") SS.net.broadcast({ t: "closed" });
-        SS.sync();
-        SS.toast("Abend abgeschlossen.", "ok");
-      } }),
+      s.phase === "over"
+        ? btn("Abend wieder aufmachen", { onClick: () => {
+            if (!confirm("Den Abend wieder aufmachen? Alle können dann weiterspielen.")) return;
+            SS.reopenEvening(); SS.closeModal(); SS.toast("Der Abend läuft wieder.", "ok"); go("tasks");
+          } })
+        : null,
+      s.phase !== "review" && s.phase !== "over" ? btn("Wertung starten", { kind: "primary", onClick: () => { SS.startReview(); SS.closeModal(); go("review"); } }) : null,
+      s.phase !== "over" ? btn("Abend beenden", { kind: "danger", onClick: () => {
+        const open = Object.values(s.assignments).reduce((n, a) => n + a.filter((t) => !t.confirmed).length, 0);
+        const warn = open ? "\n\nEs sind noch " + open + " Aufgabe(n) offen. Die zählen dann nicht mehr." : "";
+        if (!confirm("Abend wirklich beenden? Danach steht der Endstand fest." + warn)) return;
+        SS.endEvening();
+        SS.closeModal();
+        SS.toast("Abend beendet.", "ok");
+        go("end");
+      } }) : null,
     ]));
     return box;
   }
@@ -1063,7 +1218,7 @@
   /* ── Navigation ───────────────────────────────────────────────────────── */
   const VIEWS = {
     home: viewHome, lobby: viewLobby, tasks: viewTasks, sidequests: viewSidequests,
-    chat: viewChat, review: viewReview, album: viewAlbum,
+    chat: viewChat, review: viewReview, album: viewAlbum, end: viewEnd,
   };
   function go(route) {
     SS.state.route = route;
@@ -1075,8 +1230,28 @@
     const root = $("#app");
     const route = SS.state.route || "home";
     const view = VIEWS[route] || viewHome;
+
+    // Fokus und Eingaben retten. Ohne das wischt jeder Netz-Zwischenfall
+    // einem den halb getippten Chatbeitrag weg — das fühlt sich kaputt an.
+    const active = document.activeElement;
+    const keep = active && root.contains(active) && active.id
+      ? { id: active.id, value: active.value, start: active.selectionStart, end: active.selectionEnd }
+      : null;
+    const scroll = window.scrollY;
+
     root.innerHTML = "";
     root.appendChild(view());
+
+    if (keep) {
+      const back = $("#" + keep.id);
+      if (back && "value" in back) {
+        back.value = keep.value;
+        try { back.setSelectionRange(keep.start, keep.end); } catch (e) {}
+        back.focus();
+      }
+    }
+    // Nicht zurückspringen, wenn der Nutzer gerade irgendwo steht.
+    if (scroll > 0) window.scrollTo(0, scroll);
     updateOutbox();
   }
 
@@ -1104,8 +1279,22 @@
     SS.setRenderCurrent(render);
     SS.on("net", render);
     SS.on("joined", render);
-    SS.on("chat", () => { if (SS.state.route === "chat") render(); });
+    SS.on("chat", () => {
+      if (SS.state.route !== "chat") return;
+      const log = $("#chatLog");
+      if (!log) { render(); return; }
+      // Nur die Liste nachziehen — sonst verliert man das halb getippte Wort.
+      const lines = SS.store ? SS.store.chat() : [];
+      log.innerHTML = "";
+      if (!lines.length) log.appendChild(el("p", { class: "muted small", text: "Noch nichts geschrieben." }));
+      else lines.forEach((l) => log.appendChild(chatLine(l)));
+      log.scrollTop = log.scrollHeight;
+    });
     SS.on("outbox", updateOutbox);
+    // Das Protokoll speist die Übersicht "Was gerade läuft". Ohne diese
+    // Verbindung blieb sie stehen, bis zufällig etwas anderes neu zeichnete.
+    SS.on("log", scheduleRender);
+    SS.on("chronicle", scheduleRender);
     SS.on("tamper", (key) => {
       SS.logLine("Ein gespeicherter Stand war nicht mehr gültig und wurde verworfen (" + key + ").", "err");
     });
@@ -1114,7 +1303,17 @@
       if (t) go("home");
     });
     window.addEventListener("hashchange", checkJoinLink);
+    // Am Handy ist die Adresszeile mal da, mal weg — dabei verschiebt sich
+    // das Layout. Einmal nachziehen, damit nichts halb abgeschnitten bleibt.
+    window.addEventListener("resize", scheduleRender);
     render();
+  }
+
+  /** Mehrere Ereignisse kurz hintereinander sollen nur einmal zeichnen. */
+  let renderTimer = null;
+  function scheduleRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => { renderTimer = null; render(); }, 60);
   }
 
   SS.ui = { go, render, initUI, openCreate, openJoin, openReport, openWirtPanel, copyText, checkJoinLink };
