@@ -179,6 +179,7 @@ window.SS = (function () {
       chat: true,
       review: true,           // Gesamtwertung am Ende
       hostOverride: true,     // Wirt darf Wertung unterbinden
+      confirmMode: "self",    // Jeder hakt seine eigene Aufgabe selbst ab.
     },
     reviews: {},              // aid -> { ok:[pid], bad:[pid] }
     log: [],
@@ -264,7 +265,40 @@ window.SS = (function () {
     };
   }
 
-  const photoFor = (aid) => (SS.store ? SS.store.album().find((p) => p.aid === aid) : null);
+  /**
+   * Ein Bild ist angekommen — die Aufgabe gilt damit als nachgewiesen.
+   * Läuft auf jedem Gerät: am Absender, am Wirt und bei allen anderen.
+   * Bewusst mehrfach aufrufbar, das Bild kann über mehrere Wege eintreffen.
+   */
+  function notePhoto(pid, aid, meta) {
+    meta = meta || {};
+    if (String(aid).indexOf("sq:") === 0) {
+      const sq = state.sidequests.find((x) => x.id === String(aid).slice(3));
+      if (!sq) return false;
+      sq.done = sq.done || {};
+      if (sq.done[pid]) return true;
+      sq.done[pid] = { photo: aid, at: Date.now(), points: sq.points || 2, voided: false };
+      if (SS.store) SS.store.addChronicle({
+        type: "sidequest", groupCode: state.code || null, group: !!state.code,
+        who: nameOf(pid), task: sq.text, points: sq.points || 2, game: state.groupName,
+      });
+      logLine(nameOf(pid) + " hat eine Sidequest geschafft (+" + (sq.points || 2) + ").", "ok");
+      return true;
+    }
+    const t = findTask(pid, aid);
+    if (!t) return false;
+    if (t.photo === aid && t.done) return true;
+    t.photo = aid;
+    t.at = Date.now();
+    t.done = true;
+    // Neuer Nachweis: alte Bewertungen gelten nicht mehr.
+    t.flagBy = []; t.voided = false;
+    state.reviews[aid] = { ok: [], bad: [] };
+    logLine(nameOf(pid) + " hat einen Nachweis gebracht.", "ok");
+    return true;
+  }
+
+  const photoFor = (aid) => (SS.store ? SS.store.photoByAid(aid) : null);
 
   /** Foto zur Aufgabe hinterlegen. Ohne Bild gilt eine Aufgabe nicht. */
   function attachPhoto(pid, aid, data) {
@@ -272,17 +306,13 @@ window.SS = (function () {
     if (!t) { toast("Die Aufgabe gibt's ned.", "err"); return false; }
     if (t.confirmed) { toast("Is scho abgehakt.", "err"); return false; }
     if (!data) { toast("Ohne Bild geht's ned.", "err"); return false; }
-    const rec = SS.store.addPhoto({
+    SS.store.addPhoto({
       aid: aid, pid: pid, data: data, taskId: t.taskId,
       who: nameOf(pid), groupCode: state.code || null, text: t.text,
     });
-    t.photo = rec.id;
-    t.at = Date.now();
-    t.done = true;
-    // Neuer Nachweis: alte Bewertungen gelten nicht mehr.
-    t.flagBy = []; t.voided = false;
-    state.reviews[aid] = { ok: [], bad: [] };
-    logLine(nameOf(pid) + " hat einen Nachweis gebracht.", "ok");
+    notePhoto(pid, aid);
+    // Das Bild an die Runde verteilen, damit es im Album aller auftaucht.
+    if (SS.net && state.mode === "online") SS.net.sendPhoto(aid, pid, data);
     return true;
   }
 
@@ -521,6 +551,10 @@ window.SS = (function () {
     if (!pid) { toast("Kein Teilnehmer angemeldet.", "err"); return; }
     if (state.mode === "online" && state.role === "guest") {
       if (pid !== state.me) { toast("Nur eigene Sachen sind möglich.", "err"); return; }
+      // Foto-Aktionen enthalten ein Bild und sind zu groß für eine Nachricht.
+      // Sie laufen am Gerät, das Bild geht als eigene Stücke raus (attachPhoto).
+      // Der Wirt erfährt davon über die Bildstücke selbst.
+      if (payload && payload.data) { applyAction(pid, name, payload); return; }
       if (!net.sendToHost({ t: "act", pid: pid, name: name, payload: payload })) {
         state.pending = true;
         if (SS.store) SS.store.queue({ kind: "aktion", action: name, payload: payload, pid: pid, at: Date.now() });
@@ -667,7 +701,7 @@ window.SS = (function () {
     logLine, addPlayer, removePlayer,
     // Abend
     tasksOf, myTasks: () => tasksOf(state.mode === "online" ? state.me : (state.players[0] && state.players[0].id)),
-    findTask, findTaskAnywhere, pointsOf, sidequestsDone, doneCount, photoFor,
+    findTask, findTaskAnywhere, pointsOf, sidequestsDone, doneCount, photoFor, notePhoto,
     isVoid,
     attachPhoto, confirmTask, rejectTask,
     takeSidequest, finishSidequest, proposeSidequest, approveProposal, rejectProposal,

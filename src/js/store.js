@@ -433,9 +433,17 @@
 
   /* ── Fotoalbum ────────────────────────────────────────────────────────── */
   function album() { return get("album", []); }
+  /**
+   * Ein Bild ins Album legen. Die Kennung ist die Aufgaben-Kennung, damit
+   * dasselbe Bild auf jedem Gerät denselben Platz hat und ein erneutes
+   * Einstellen das alte ersetzt statt es doppelt zu führen.
+   */
   function addPhoto(entry) {
     const list = album();
-    list.unshift(Object.assign({ id: uid(12), at: now() }, entry));
+    const rec = Object.assign({ id: entry.aid || uid(12), at: now() }, entry);
+    const at = list.findIndex((p) => p.id === rec.id);
+    if (at !== -1) list.splice(at, 1);
+    list.unshift(rec);
     if (list.length > 240) list.length = 240;
     if (!put("album", list)) {
       // Speicher voll: die ältesten Bilder opfern, damit der Abend weiterläuft.
@@ -444,12 +452,18 @@
       SS.toast("Gerätespeicher fast voll — die ältesten Bilder wurden entfernt.", "err");
     }
     SS.emit("album");
-    return list[0];
+    return rec;
   }
   function photosOf(groupCode) {
     return album().filter((p) => !groupCode || !p.groupCode || p.groupCode === groupCode);
   }
   function photoOf(pid) { return album().filter((p) => p.pid === pid); }
+  /** Das Bild zu einer Aufgabe. Der Album-Platz ist die Aufgaben-Kennung. */
+  function photoByAid(aid) { return album().find((p) => p.aid === aid) || null; }
+  /** Kennungen aller Bilder einer Runde — für den Abgleich zwischen Geräten. */
+  function photoKeys(groupCode) {
+    return photosOf(groupCode).map((p) => p.aid).filter(Boolean);
+  }
   function dropPhoto(id) {
     put("album", album().filter((p) => p.id !== id));
     SS.emit("album");
@@ -483,7 +497,7 @@
     outbox, queue, clearOutbox, outboxCount,
     chat, addChat, clearChat,
     chronicle, addChronicle, chronicleFor, clearChronicle, tally,
-    album, addPhoto, photosOf, photoOf, dropPhoto, clearAlbum,
+    album, addPhoto, photosOf, photoOf, photoByAid, photoKeys, dropPhoto, clearAlbum,
     wipe, usage,
   };
 })();

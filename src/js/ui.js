@@ -9,6 +9,10 @@
   const SS = window.SS;
   const $ = SS.$, $$ = SS.$$, el = SS.el;
 
+  // Läuft gerade ein Bild-Upload? Verhindert, dass zweimal getippt wird und
+  // dasselbe Bild doppelt rausgeht.
+  let shooting = false;
+
   /* ── Bausteine ────────────────────────────────────────────────────────── */
   function btn(label, opts) {
     opts = opts || {};
@@ -486,11 +490,27 @@
     return null;
   }
 
+  /**
+   * Bild aufnehmen und hochladen. Gibt sofort Rückmeldung, damit am Handy
+   * klar ist, dass es geklappt hat — dort sieht man den kleinen Fortschritt
+   * am Rand leicht nicht.
+   */
   function shootPhoto(pid, aid) {
+    if (shooting) { SS.toast("Des Bild is scho unterwegs.", "err"); return; }
+    SS.toast("Kamera oder Galerie aufmachen …", "ok");
     SS.proof.pick().then((res) => {
       if (!res) return;
-      SS.actAs(pid, "photo", { pid: pid, aid: aid, data: res.data });
-      SS.toast("Nachweis gespeichert. Der Wirt schaut gleich drüber.", "ok");
+      shooting = true;
+      SS.toast("Bild wird hochgeladen …", "ok");
+      try {
+        SS.actAs(pid, "photo", { pid: pid, aid: aid, data: res.data });
+        const kb = Math.max(1, Math.round(res.bytes / 1024));
+        SS.toast("Nachweis drin (" + kb + " KB). Der Wirt schaut gleich drüber.", "ok");
+      } catch (e) {
+        SS.toast("Des hot ned klappt: " + e.message, "err");
+      } finally {
+        shooting = false;
+      }
     });
   }
   function hostConfirm(pid, aid) { SS.actAs(pid, "confirm", { pid: pid, aid: aid }); SS.toast("Freigegeben.", "ok"); }
@@ -740,12 +760,48 @@
   }
 
   /* ── Album ────────────────────────────────────────────────────────────── */
+  /** Ein Bild groß anzeigen — Tippen aufs Album-Bild. */
+  function openLightbox(photo, all, index) {
+    let i = index;
+    const wrap = el("div", { class: "lightbox" });
+    const img = el("img", { class: "lightbox-img", src: all[i].data, alt: "Nachweis" });
+    const cap = el("div", { class: "lightbox-cap" });
+    function draw() {
+      const p = all[i];
+      img.src = p.data;
+      cap.innerHTML = "";
+      const who = SS.player(p.pid);
+      cap.appendChild(el("div", { class: "lightbox-who" }, [
+        avatar(who || { name: p.who || "Gast" }, "tiny"),
+        el("strong", { text: (who && who.name) || p.who || "Gast" }),
+        el("span", { class: "muted small", text: p.at ? new Date(p.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) + " Uhr" : "" }),
+      ]));
+      if (p.text) cap.appendChild(el("p", { class: "lightbox-text", text: p.text }));
+    }
+    draw();
+    const close = btn("Zumachen", { kind: "ghost", onClick: () => wrap.remove() });
+    const nav = el("div", { class: "lightbox-nav" }, [
+      btn("‹", { kind: "ghost", disabled: all.length < 2, onClick: () => { i = (i - 1 + all.length) % all.length; draw(); } }),
+      el("span", { class: "muted small", text: "Bild " + (i + 1) + " von " + all.length }),
+      btn("›", { kind: "ghost", disabled: all.length < 2, onClick: () => { i = (i + 1) % all.length; draw(); } }),
+      close,
+    ]);
+    wrap.appendChild(img);
+    wrap.appendChild(cap);
+    wrap.appendChild(nav);
+    wrap.addEventListener("click", (e) => { if (e.target === wrap) wrap.remove(); });
+    document.body.appendChild(wrap);
+  }
+
   function viewAlbum() {
-    const photos = SS.allProofs();
+    const photos = SS.allProofs().filter((p) => p.data);
+    const missing = SS.allProofs().filter((p) => !p.data);
+    const total = SS.alive().length;
+    const withPhoto = new Set(photos.map((p) => p.pid)).size;
     const body = el("div", { class: "wrap" }, [
       el("section", { class: "album-head" }, [
         el("h1", { text: "Album des Abends" }),
-        el("p", { class: "muted", text: photos.length + " Nachweise · " + SS.alive().length + " Leut" }),
+        el("p", { class: "muted", text: photos.length + " Bilder · von " + withPhoto + " von " + total + " Leut" }),
       ]),
     ]);
     if (!photos.length) {
@@ -754,14 +810,38 @@
       const byPid = {};
       photos.forEach((p) => { (byPid[p.pid] = byPid[p.pid] || []).push(p); });
       Object.keys(byPid).forEach((pid) => {
+        const mine = byPid[pid];
         body.appendChild(el("section", { class: "panel" }, [
-          el("div", { class: "panel-head" }, [avatar(SS.player(pid) || { name: "Gast" }), el("h2", { text: SS.nameOf(pid) }), pill(String(byPid[pid].length) + " Bilder")]),
-          el("div", { class: "album-grid" }, byPid[pid].map((p) => el("figure", { class: "album-item" }, [
-            SS.proof.img(p.data),
-            el("figcaption", { class: "muted small", text: p.text || "" }),
-          ]))),
+          el("div", { class: "panel-head" }, [
+            avatar(SS.player(pid) || { name: mine[0].who || "Gast" }),
+            el("h2", { text: SS.nameOf(pid) }),
+            pill(mine.length + (mine.length === 1 ? " Bild" : " Bilder"), "ghost"),
+          ]),
+          el("div", { class: "album-grid" }, mine.map((p, i) => {
+            const t = SS.findTaskAnywhere(p.aid);
+            const rev = SS.reviewOf(p.aid);
+            const bad = (rev.bad || []).length;
+            return el("figure", {
+              class: "album-item" + (bad ? " flagged" : ""),
+              onclick: () => openLightbox(p, mine, i),
+              role: "button",
+              tabindex: "0",
+            }, [
+              SS.proof.img(p.data),
+              el("figcaption", {}, [
+                el("span", { class: "album-time", text: p.at ? new Date(p.at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) + " Uhr" : "" }),
+                t && t.task.voided ? pill("ungültig", "bad") : t && t.task.confirmed ? pill("abgehakt", "gold") : bad ? pill(bad + " dagegen", "warn") : null,
+                p.text ? el("span", { class: "album-text", text: p.text }) : null,
+              ]),
+            ]);
+          })),
         ]));
       });
+      if (missing.length) {
+        body.appendChild(el("section", { class: "panel" }, [
+          el("p", { class: "muted small", text: missing.length + " Nachweis(e) sind ohne Bild — die kommen, sobald das Gerät wieder Netz hat." }),
+        ]));
+      }
     }
     body.appendChild(el("div", { class: "row-actions" }, [
       btn("Bericht anzeigen", { kind: "primary", onClick: openReport }),

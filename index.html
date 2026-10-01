@@ -235,10 +235,31 @@ select{cursor:pointer}
 
 /* ── Album ─────────────────────────────────────────────────────────────── */
 .album-head{padding:6px 0 16px}
-.album-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
-.album-item{margin:0;background:rgba(0,0,0,.25);border-radius:10px;padding:8px;border:1px solid var(--line)}
-.album-item img{width:100%;border-radius:7px;display:block;aspect-ratio:1;object-fit:cover}
-.album-item figcaption{margin-top:6px;font-size:11.5px;color:#b09a78;line-height:1.3}
+.album-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+.album-item{
+  margin:0;background:linear-gradient(180deg,rgba(0,0,0,.3),rgba(0,0,0,.16));
+  border-radius:12px;padding:8px;border:1px solid var(--line);cursor:pointer;
+  transition:transform .12s ease,border-color .12s ease;
+}
+.album-item:hover{transform:translateY(-2px);border-color:rgba(201,139,60,.6)}
+.album-item:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.album-item.flagged{border-color:rgba(156,43,35,.6)}
+.album-item img{width:100%;border-radius:8px;display:block;aspect-ratio:1;object-fit:cover}
+.album-item figcaption{margin-top:7px;display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:#b09a78;line-height:1.3}
+.album-time{color:#8f7a58;font-variant-numeric:tabular-nums}
+.album-text{color:#c8b492;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* Großansicht */
+.lightbox{
+  position:fixed;inset:0;z-index:60;background:rgba(8,5,2,.93);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;padding:16px;backdrop-filter:blur(3px);
+}
+.lightbox-img{max-width:min(96vw,760px);max-height:68vh;border-radius:12px;object-fit:contain;border:1px solid rgba(201,139,60,.35)}
+.lightbox-cap{max-width:min(96vw,760px);width:100%;text-align:left}
+.lightbox-who{display:flex;align-items:center;gap:8px;color:var(--cream)}
+.lightbox-text{margin:6px 0 0;font-size:13px;color:#cbb896;line-height:1.4}
+.lightbox-nav{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
 
 /* ── Bericht ───────────────────────────────────────────────────────────── */
 .report{max-height:62vh;overflow:auto}
@@ -2885,6 +2906,7 @@ window.SS = (function () {
       chat: true,
       review: true,           // Gesamtwertung am Ende
       hostOverride: true,     // Wirt darf Wertung unterbinden
+      confirmMode: "self",    // Jeder hakt seine eigene Aufgabe selbst ab.
     },
     reviews: {},              // aid -> { ok:[pid], bad:[pid] }
     log: [],
@@ -2970,7 +2992,40 @@ window.SS = (function () {
     };
   }
 
-  const photoFor = (aid) => (SS.store ? SS.store.album().find((p) => p.aid === aid) : null);
+  /**
+   * Ein Bild ist angekommen — die Aufgabe gilt damit als nachgewiesen.
+   * Läuft auf jedem Gerät: am Absender, am Wirt und bei allen anderen.
+   * Bewusst mehrfach aufrufbar, das Bild kann über mehrere Wege eintreffen.
+   */
+  function notePhoto(pid, aid, meta) {
+    meta = meta || {};
+    if (String(aid).indexOf("sq:") === 0) {
+      const sq = state.sidequests.find((x) => x.id === String(aid).slice(3));
+      if (!sq) return false;
+      sq.done = sq.done || {};
+      if (sq.done[pid]) return true;
+      sq.done[pid] = { photo: aid, at: Date.now(), points: sq.points || 2, voided: false };
+      if (SS.store) SS.store.addChronicle({
+        type: "sidequest", groupCode: state.code || null, group: !!state.code,
+        who: nameOf(pid), task: sq.text, points: sq.points || 2, game: state.groupName,
+      });
+      logLine(nameOf(pid) + " hat eine Sidequest geschafft (+" + (sq.points || 2) + ").", "ok");
+      return true;
+    }
+    const t = findTask(pid, aid);
+    if (!t) return false;
+    if (t.photo === aid && t.done) return true;
+    t.photo = aid;
+    t.at = Date.now();
+    t.done = true;
+    // Neuer Nachweis: alte Bewertungen gelten nicht mehr.
+    t.flagBy = []; t.voided = false;
+    state.reviews[aid] = { ok: [], bad: [] };
+    logLine(nameOf(pid) + " hat einen Nachweis gebracht.", "ok");
+    return true;
+  }
+
+  const photoFor = (aid) => (SS.store ? SS.store.photoByAid(aid) : null);
 
   /** Foto zur Aufgabe hinterlegen. Ohne Bild gilt eine Aufgabe nicht. */
   function attachPhoto(pid, aid, data) {
@@ -2978,17 +3033,13 @@ window.SS = (function () {
     if (!t) { toast("Die Aufgabe gibt's ned.", "err"); return false; }
     if (t.confirmed) { toast("Is scho abgehakt.", "err"); return false; }
     if (!data) { toast("Ohne Bild geht's ned.", "err"); return false; }
-    const rec = SS.store.addPhoto({
+    SS.store.addPhoto({
       aid: aid, pid: pid, data: data, taskId: t.taskId,
       who: nameOf(pid), groupCode: state.code || null, text: t.text,
     });
-    t.photo = rec.id;
-    t.at = Date.now();
-    t.done = true;
-    // Neuer Nachweis: alte Bewertungen gelten nicht mehr.
-    t.flagBy = []; t.voided = false;
-    state.reviews[aid] = { ok: [], bad: [] };
-    logLine(nameOf(pid) + " hat einen Nachweis gebracht.", "ok");
+    notePhoto(pid, aid);
+    // Das Bild an die Runde verteilen, damit es im Album aller auftaucht.
+    if (SS.net && state.mode === "online") SS.net.sendPhoto(aid, pid, data);
     return true;
   }
 
@@ -3227,6 +3278,10 @@ window.SS = (function () {
     if (!pid) { toast("Kein Teilnehmer angemeldet.", "err"); return; }
     if (state.mode === "online" && state.role === "guest") {
       if (pid !== state.me) { toast("Nur eigene Sachen sind möglich.", "err"); return; }
+      // Foto-Aktionen enthalten ein Bild und sind zu groß für eine Nachricht.
+      // Sie laufen am Gerät, das Bild geht als eigene Stücke raus (attachPhoto).
+      // Der Wirt erfährt davon über die Bildstücke selbst.
+      if (payload && payload.data) { applyAction(pid, name, payload); return; }
       if (!net.sendToHost({ t: "act", pid: pid, name: name, payload: payload })) {
         state.pending = true;
         if (SS.store) SS.store.queue({ kind: "aktion", action: name, payload: payload, pid: pid, at: Date.now() });
@@ -3373,7 +3428,7 @@ window.SS = (function () {
     logLine, addPlayer, removePlayer,
     // Abend
     tasksOf, myTasks: () => tasksOf(state.mode === "online" ? state.me : (state.players[0] && state.players[0].id)),
-    findTask, findTaskAnywhere, pointsOf, sidequestsDone, doneCount, photoFor,
+    findTask, findTaskAnywhere, pointsOf, sidequestsDone, doneCount, photoFor, notePhoto,
     isVoid,
     attachPhoto, confirmTask, rejectTask,
     takeSidequest, finishSidequest, proposeSidequest, approveProposal, rejectProposal,
@@ -3804,18 +3859,20 @@ window.SS = (function () {
    über <input type="file" accept="image/*" capture="environment"> — das öffnet
    auf iPhone, iPad und Android die Kamera und am Laptop den Dateidialog.
 
-   Vor dem Speichern wird das Bild auf Daumennagelgröße verkleinert. Handys
-   liefern sonst mehrere Megabyte pro Foto, und der Gerätespeicher ist schnell
-   voll. Für den Nachweis reicht ein kleines Bild vollkommen.
+   Vor dem Speichern wird das Bild verkleinert. Handys liefern sonst mehrere
+   Megabyte pro Foto; das sprengt den Speicher und passt nicht durch den
+   Funkkanal. Das Bild wird deshalb so lange nachgeschärft, bis es in das
+   vorgegebene Maß passt — die Qualität sinkt dabei nur so weit wie nötig.
    ========================================================================== */
 (function () {
   "use strict";
   const SS = window.SS;
 
-  const MAX_EDGE = 720;   // längste Kante im gespeicherten Bild
-  const QUALITY = 0.6;    // JPEG-Qualität
+  const MAX_EDGE = 1000;      // längste Kante im gespeicherten Bild
+  const MIN_EDGE = 480;       // kleiner wird nicht gerechnet, sonst wird's Matsch
+  const QUALITY_STEPS = [0.72, 0.62, 0.52, 0.42, 0.34];
 
-  /** Datei einlesen und auf Daumennagelgröße bringen. */
+  /** Datei einlesen und auf ein übertragbares Maß bringen. */
   function shrink(file) {
     return new Promise((resolve, reject) => {
       if (!file) { reject(new Error("Kein Bild ausgewählt.")); return; }
@@ -3826,21 +3883,48 @@ window.SS = (function () {
         const img = new Image();
         img.onerror = () => reject(new Error("Bild konnte nicht geöffnet werden."));
         img.onload = () => {
-          try {
-            const scale = Math.min(1, MAX_EDGE / Math.max(img.width || MAX_EDGE, img.height || MAX_EDGE));
-            const w = Math.max(1, Math.round((img.width || MAX_EDGE) * scale));
-            const h = Math.max(1, Math.round((img.height || MAX_EDGE) * scale));
-            const canvas = document.createElement("canvas");
-            canvas.width = w; canvas.height = h;
-            const g = canvas.getContext("2d");
-            g.drawImage(img, 0, 0, w, h);
-            resolve({ data: canvas.toDataURL("image/jpeg", QUALITY), w, h, bytes: Math.round(canvas.toDataURL("image/jpeg", QUALITY).length * 0.75) });
-          } catch (e) { reject(new Error("Bild konnte nicht verkleinert werden.")); }
+          try { resolve(crunch(img)); } catch (e) { reject(new Error("Bild konnte nicht verkleinert werden.")); }
         };
         img.src = reader.result;
       };
       reader.readAsDataURL(file);
     });
+  }
+
+  /**
+   * Erst die Qualität senken, dann erst die Kantenlänge. So bleibt das Bild
+   * scharf, solange es geht — ein unscharfes Bild wäre als Nachweis wertlos.
+   */
+  function crunch(img) {
+    const budget = SS.net && SS.net.photoBudget ? SS.net.photoBudget() : 200 * 1024;
+    const srcW = img.width || MAX_EDGE, srcH = img.height || MAX_EDGE;
+    let edge = MAX_EDGE;
+    for (let round = 0; round < 8; round++) {
+      const scale = Math.min(1, edge / Math.max(srcW, srcH));
+      const w = Math.max(1, Math.round(srcW * scale));
+      const h = Math.max(1, Math.round(srcH * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const g = canvas.getContext("2d");
+      g.drawImage(img, 0, 0, w, h);
+      for (const q of QUALITY_STEPS) {
+        const data = canvas.toDataURL("image/jpeg", q);
+        const bytes = Math.round((data.length - 23) * 0.75);
+        if (bytes <= budget) return { data, w, h, bytes, quality: q };
+      }
+      // Selbst die schlechteste Qualität ist zu groß: eine Stufe kleiner rechnen.
+      if (edge <= MIN_EDGE) break;
+      edge = Math.max(MIN_EDGE, Math.round(edge * 0.75));
+    }
+    // Notnagel: das Kleinste, was wir haben.
+    const scale = Math.min(1, MIN_EDGE / Math.max(srcW, srcH));
+    const w = Math.max(1, Math.round(srcW * scale));
+    const h = Math.max(1, Math.round(srcH * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+    const data = canvas.toDataURL("image/jpeg", 0.3);
+    return { data, w, h, bytes: Math.round((data.length - 23) * 0.75), quality: 0.3 };
   }
 
   /** Wählt der Nutzer ein Bild aus? Liefert {data,w,h} oder null. */
@@ -4317,9 +4401,17 @@ window.SS = (function () {
 
   /* ── Fotoalbum ────────────────────────────────────────────────────────── */
   function album() { return get("album", []); }
+  /**
+   * Ein Bild ins Album legen. Die Kennung ist die Aufgaben-Kennung, damit
+   * dasselbe Bild auf jedem Gerät denselben Platz hat und ein erneutes
+   * Einstellen das alte ersetzt statt es doppelt zu führen.
+   */
   function addPhoto(entry) {
     const list = album();
-    list.unshift(Object.assign({ id: uid(12), at: now() }, entry));
+    const rec = Object.assign({ id: entry.aid || uid(12), at: now() }, entry);
+    const at = list.findIndex((p) => p.id === rec.id);
+    if (at !== -1) list.splice(at, 1);
+    list.unshift(rec);
     if (list.length > 240) list.length = 240;
     if (!put("album", list)) {
       // Speicher voll: die ältesten Bilder opfern, damit der Abend weiterläuft.
@@ -4328,12 +4420,18 @@ window.SS = (function () {
       SS.toast("Gerätespeicher fast voll — die ältesten Bilder wurden entfernt.", "err");
     }
     SS.emit("album");
-    return list[0];
+    return rec;
   }
   function photosOf(groupCode) {
     return album().filter((p) => !groupCode || !p.groupCode || p.groupCode === groupCode);
   }
   function photoOf(pid) { return album().filter((p) => p.pid === pid); }
+  /** Das Bild zu einer Aufgabe. Der Album-Platz ist die Aufgaben-Kennung. */
+  function photoByAid(aid) { return album().find((p) => p.aid === aid) || null; }
+  /** Kennungen aller Bilder einer Runde — für den Abgleich zwischen Geräten. */
+  function photoKeys(groupCode) {
+    return photosOf(groupCode).map((p) => p.aid).filter(Boolean);
+  }
   function dropPhoto(id) {
     put("album", album().filter((p) => p.id !== id));
     SS.emit("album");
@@ -4367,7 +4465,7 @@ window.SS = (function () {
     outbox, queue, clearOutbox, outboxCount,
     chat, addChat, clearChat,
     chronicle, addChronicle, chronicleFor, clearChronicle, tally,
-    album, addPhoto, photosOf, photoOf, dropPhoto, clearAlbum,
+    album, addPhoto, photosOf, photoOf, photoByAid, photoKeys, dropPhoto, clearAlbum,
     wipe, usage,
   };
 })();
@@ -4504,15 +4602,59 @@ window.SS = (function () {
   }
 
   /* ── Senden ───────────────────────────────────────────────────────────── */
-  function sendToHost(msg) {
-    if (hostConn && hostConn.open) {
-      try { hostConn.send(msg); return true; } catch (e) { return false; }
+  // Der Datenkanal nimmt rund 16 KB je Nachricht. Alles, was darüber liegt,
+  // wird in Stücke zerlegt und am anderen Ende wieder zusammengesetzt. Das
+  // betrifft vor allem den Zustand einer großen Runde: Bei 100 Leuten ist die
+  // Aufgabe-Liste allein größer als der Kanal fasst.
+  const MAX_MSG = 12000;       // darüber wird gestückelt
+  const FRAME = 6000;          // Nutzdaten je Stück
+  let frameSeq = 0;
+
+  /** Eine Nachricht in den Kanal geben — bei Bedarf in Stücken. */
+  function push(conn, msg) {
+    if (!conn || !conn.open) return false;
+    let text;
+    try { text = JSON.stringify(msg); } catch (e) { return false; }
+    if (text.length <= MAX_MSG) { try { conn.send(msg); return true; } catch (e) { return false; } }
+    const id = "f" + (frameSeq++) + "-" + Date.now().toString(36);
+    const total = Math.ceil(text.length / FRAME);
+    try {
+      conn.send({ t: "big", id: id, seq: 0, total: total });
+      for (let i = 0; i < total; i++) conn.send({ t: "big", id: id, seq: i + 1, d: text.slice(i * FRAME, (i + 1) * FRAME) });
+      return true;
+    } catch (e) { return false; }
+  }
+
+  const bigBoxes = new Map();  // id -> { parts: Map, total, got, at }
+
+  /** Ein Stück einer großen Nachricht aufnehmen. */
+  function takeBig(conn, msg) {
+    const id = msg.id;
+    if (!id) return null;
+    let box = bigBoxes.get(id);
+    if (!box) { box = { parts: new Map(), total: 0, got: 0, at: Date.now() }; bigBoxes.set(id, box); }
+    if (msg.seq === 0) { box.total = msg.total; box.at = Date.now(); return null; }
+    if (!box.total) return null;
+    if (typeof msg.d === "string" && !box.parts.has(msg.seq)) { box.parts.set(msg.seq, msg.d); box.got++; }
+    if (box.got < box.total) {
+      if (Date.now() - box.at > 60000) bigBoxes.delete(id);
+      return null;
     }
-    return false;
+    let text = "";
+    for (let i = 1; i <= box.total; i++) {
+      const part = box.parts.get(i);
+      if (part === undefined) { bigBoxes.delete(id); return null; }
+    }
+    for (let i = 1; i <= box.total; i++) text += box.parts.get(i);
+    bigBoxes.delete(id);
+    try { return JSON.parse(text); } catch (e) { return null; }
+  }
+
+  function sendToHost(msg) {
+    return push(hostConn, msg);
   }
   function sendConn(conn, msg) {
-    if (conn && conn.open) { try { conn.send(msg); return true; } catch (e) { return false; } }
-    return false;
+    return push(conn, msg);
   }
   function broadcast(msg, exceptPid) {
     conns.forEach((c) => { if (c.open && c.pid !== exceptPid) sendConn(c, msg); });
@@ -4523,8 +4665,117 @@ window.SS = (function () {
   }
   function guestCount() { return conns.filter((c) => c.open).length; }
 
-  /* ── Zustandsverteilung ───────────────────────────────────────────────── */
+  /* ── Fotos übertragen ─────────────────────────────────────────────────────
+     Ein Bild ist groß, aber die Stückelung oben erledigt das: Es geht als
+     eine Nachricht raus und wird unterwegs zerlegt. Wichtig ist hier nur der
+     Weg — ein Gast schickt sein Bild an den Wirt, der es ablegt und an alle
+     anderen verteilt. So hat am Ende jedes Gerät dasselbe Album.
+     ──────────────────────────────────────────────────────────────────────── */
+
+  const PHOTO_BYTES_MAX = 600 * 1024;  // größer wird nicht übertragen
+
+  // Wie groß das verkleinerte Bild höchstens sein soll. Ein Handy liefert
+  // sonst mehrere Megabyte, und die laufen weder durch den Kanal noch in den
+  // Speicher. Am Rechner darf es etwas mehr sein, da ist der Speicher größer.
+  function photoBudget() {
+    const touch = (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0)
+      || (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    return touch ? 180 * 1024 : 320 * 1024;
+  }
+
+  /**
+   * Ein Bild verschicken. dataUrl darf null sein: Dann wird nur der Platz im
+   * Album vermerkt, damit alle wissen, dass dieses Bild zu dieser Aufgabe
+   * gehört — das Bild selbst kommt beim nächsten Kontakt nach.
+   * Mit `target` geht es gezielt an eine Verbindung (für Nachzügler).
+   */
+  function sendPhoto(aid, pid, dataUrl, target) {
+    if (dataUrl && dataUrl.length * 0.75 > PHOTO_BYTES_MAX) {
+      SS.toast("Des Bild is z'groß zum Verschicken.", "err");
+      return false;
+    }
+    const found = SS.findTaskAnywhere(aid);
+    const msg = {
+      t: "img", aid: aid, pid: pid, who: SS.nameOf(pid),
+      text: found ? found.task.text : "", data: dataUrl || null,
+    };
+    if (target) return sendConn(target, msg);
+    let ok;
+    if (SS.state.role === "host") { broadcast(msg); ok = true; }
+    // Bewusst über die öffentliche Funktion: So bleibt dieselbe Naht, über
+    // die auch alles andere geht — und ein Test kann sie ersetzen.
+    else ok = SS.net.sendToHost(msg);
+    // Nicht durchgekommen: Beim nächsten Kontakt nochmal versuchen.
+    if (!ok && dataUrl && SS.store) SS.store.queue({ kind: "bild", aid: aid, pid: pid, data: dataUrl, at: Date.now() });
+    return ok;
+  }
+
+  /** Ein Bild aufnehmen — und am Wirt an alle anderen weiterreichen. */
+  function receivePhoto(conn, msg) {
+    const aid = msg.aid;
+    if (!aid) return false;
+    if (SS.store) {
+      SS.store.addPhoto({
+        aid: aid, pid: msg.pid, data: msg.data || null, who: msg.who,
+        groupCode: SS.state.code || null, text: msg.text || "",
+      });
+    }
+    // Die Aufgabe gilt damit als nachgewiesen — auf jedem Gerät.
+    if (SS.notePhoto) { SS.notePhoto(msg.pid, aid); SS.persist(); if (SS.renderCurrent) SS.renderCurrent(); }
+    // Der Absender bekommt sein Bild nicht zurück, er hat es ja selbst.
+    if (SS.state.role === "host") broadcast(msg, conn && conn.pid);
+    SS.emit("album");
+    return true;
+  }
+
+  /** Wie viele Bilder fehlen hier im Vergleich zu einer Liste von Kennungen? */
+  function missingPhotos(keys) {
+    if (!SS.store || !Array.isArray(keys)) return [];
+    const have = SS.store.photoKeys(SS.state.code || null);
+    return keys.filter((k) => have.indexOf(k) === -1);
+  }
+
+  /**
+   * Einem frisch dazugekommenen Gast alle Bilder schicken, die er noch nicht
+   * hat. Er meldet vorher mit "want", welche er schon hat — sonst gingen bei
+   * jedem Beitritt alle Bilder der Runde nochmal durch den Kanal.
+   */
+  function sendMissingPhotos(conn) {
+    if (!SS.store) return;
+    const have = (conn && conn.haveKeys) || [];
+    const mine = SS.store.album().filter((p) => p.data && p.aid);
+    const group = SS.state.code || null;
+    mine.filter((p) => !group || !p.groupCode || p.groupCode === group)
+      .filter((p) => have.indexOf(p.aid) === -1)
+      .forEach((p) => sendPhoto(p.aid, p.pid, p.data, conn));
+  }
+
+  /** Am Wirt: ein Gast meldet, welche Bilder er schon hat. */
+  function noteHaveKeys(conn, keys) {
+    conn.haveKeys = Array.isArray(keys) ? keys : [];
+  }
+
+  /**
+   * Was über den Kanal geht. Die Aufgabentexte bleiben weg: Die entstehen am
+   * anderen Ende aus Aufgabenkennung, Zielperson und Keim neu. Sonst wäre
+   * die Nachricht bei einer großen Runde größer als der Kanal fasst.
+   * Die Bilder gehen ebenfalls nicht mit — die laufen als eigene Stücke.
+   */
   function wireSnapshot() {
+    const tasks = {};
+    Object.keys(SS.state.assignments || {}).forEach((pid) => {
+      tasks[pid] = (SS.state.assignments[pid] || []).map((t) => {
+        const o = { aid: t.aid, taskId: t.taskId, type: t.type, level: t.level, points: t.points };
+        if (t.target) o.target = t.target;
+        if (t.photo) o.photo = 1;
+        if (t.confirmed) o.confirmed = 1;
+        if (t.confirmedBy) o.confirmedBy = t.confirmedBy;
+        if (t.voided) o.voided = 1;
+        if (t.at) o.at = t.at;
+        if (t.flagBy && t.flagBy.length) o.flagBy = t.flagBy;
+        return o;
+      });
+    });
     return {
       players: SS.state.players,
       hostId: SS.state.hostId,
@@ -4532,11 +4783,12 @@ window.SS = (function () {
       groupName: SS.state.groupName,
       seed: SS.state.seed,
       ring: SS.state.ring,
-      assignments: SS.state.assignments,
+      assignments: tasks,
       sidequests: SS.state.sidequests,
       proposals: SS.state.proposals,
       settings: SS.state.settings,
       reviews: SS.state.reviews,
+      photoKeys: SS.store ? SS.store.photoKeys(SS.state.code || null) : [],
       log: SS.state.log.slice(-40),
     };
   }
@@ -4579,6 +4831,12 @@ window.SS = (function () {
 
   function onData(conn, msg) {
     if (!msg || typeof msg !== "object") return;
+    // Eine gestückelte Nachricht: erst zusammensetzen, dann verarbeiten.
+    if (msg.t === "big") {
+      const full = takeBig(conn, msg);
+      if (full) onData(conn, full);
+      return;
+    }
     if (SS.state.role === "guest") handleGuestIncoming(msg);
     else handleHostIncoming(conn, msg);
   }
@@ -4601,6 +4859,11 @@ window.SS = (function () {
       }
       case "state": {
         applyState(msg.s);
+        // Bilder, die hier fehlen, beim Wirt anfordern.
+        if (msg.s && msg.s.photoKeys) {
+          const missing = missingPhotos(msg.s.photoKeys);
+          if (missing.length) sendToHost({ t: "want", keys: SS.store ? SS.store.photoKeys(SS.state.code || null) : [] });
+        }
         SS.emit("net");
         break;
       }
@@ -4627,6 +4890,11 @@ window.SS = (function () {
       case "act": {
         SS.applyActionRaw(msg.pid, msg.name, msg.payload);
         SS.emit("net");
+        break;
+      }
+      case "img": {
+        // Als Gast gibt es hier keine Gegenstelle — die gibt es nur am Wirt.
+        receivePhoto(null, msg);
         break;
       }
       case "chat": {
@@ -4672,6 +4940,8 @@ window.SS = (function () {
         broadcast({ t: "state", s: wireSnapshot() });
         if (SS.state.phase === "running") broadcast({ t: "deal" });
         if (SS.state.phase === "review") broadcast({ t: "review" });
+        // Bilder, die dieser Gast noch nicht hat, gezielt nachschicken.
+        sendMissingPhotos(conn);
         setStatus("online");
         SS.emit("net");
         break;
@@ -4682,6 +4952,10 @@ window.SS = (function () {
         if (!pid) return;
         SS.applyActionRaw(pid, msg.name, msg.payload);
         SS.emit("net");
+        break;
+      }
+      case "img": {
+        receivePhoto(conn, msg);
         break;
       }
       case "chat": {
@@ -4708,6 +4982,13 @@ window.SS = (function () {
         break;
       }
       case "req": sendConn(conn, { t: "state", s: wireSnapshot() }); break;
+      case "want": {
+        // Ein Gast meldet, welche Bilder er schon hat. Danach weiß der Wirt,
+        // was noch fehlt — auch bei einem Gast, der neu dazukommt.
+        noteHaveKeys(conn, msg.keys);
+        sendMissingPhotos(conn);
+        break;
+      }
       case "outbox": {
         // Nachgereichtes aus der offline verbrachten Zeit.
         const evts = Array.isArray(msg.events) ? msg.events : [];
@@ -4737,11 +5018,44 @@ window.SS = (function () {
 
   function applyState(s) {
     if (!s) return;
-    ["players", "hostId", "phase", "groupName", "seed", "ring", "assignments",
+    ["players", "hostId", "phase", "groupName", "seed", "ring",
       "sidequests", "proposals", "settings", "reviews"].forEach((k) => {
       if (s[k] !== undefined) SS.state[k] = s[k];
     });
+    if (s.assignments) SS.state.assignments = mergeAssignments(s.assignments);
     if (Array.isArray(s.log) && s.log.length) SS.state.log = s.log;
+  }
+
+  /**
+   * Die Aufgaben aus der Zustandsnachricht mit den eigenen zusammenführen.
+   * Der Text steht nicht in der Nachricht, er entsteht hier neu — aus
+   * Aufgabenkennung, Zielperson und Keim. Was schon da war, bleibt stehen.
+   */
+  function mergeAssignments(remote) {
+    const out = {};
+    const seed = String(SS.state.seed || "seidla");
+    Object.keys(remote).forEach((pid) => {
+      const mine = SS.state.assignments[pid] || [];
+      out[pid] = (remote[pid] || []).map((r) => {
+        const local = mine.find((t) => t.aid === r.aid);
+        const base = SS.tasks ? SS.tasks.taskById(r.taskId) : null;
+        let text = local && local.text ? local.text : "";
+        if (!text && base) {
+          const rng = SS.seededRng(seed + ":" + r.aid);
+          text = SS.assign.render(base.text, r.target ? SS.nameOf(r.target) : null, rng);
+        }
+        const merged = Object.assign({}, local || {}, r, { text: text || "(Aufgabe unbekannt)" });
+        // photo kommt als bloßes Ja/Nein — die eigene Bildkennung behalten.
+        merged.photo = r.photo ? ((local && local.photo) || r.aid) : null;
+        merged.confirmed = !!r.confirmed;
+        merged.voided = !!r.voided;
+        merged.flagBy = r.flagBy || (local && local.flagBy) || [];
+        merged.flagged = merged.flagBy.length;
+        merged.done = !!r.photo;
+        return merged;
+      });
+    });
+    return out;
   }
 
   /* ── Ausgangskorb: offline Gespieltes nachreichen ─────────────────────── */
@@ -4751,7 +5065,18 @@ window.SS = (function () {
     if (SS.state.connection !== "online") return false;
     const list = SS.store.outbox();
     if (!list.length) return false;
-    if (!sendToHost({ t: "outbox", events: list })) return false;
+    // Bilder werden stückweise geschickt, alles andere als eine Nachricht.
+    const plain = list.filter((e) => e.kind !== "bild");
+    const images = list.filter((e) => e.kind === "bild" && e.data);
+    if (plain.length && !sendToHost({ t: "outbox", events: plain })) return false;
+    let imagesOk = true;
+    images.forEach((e) => { if (!sendPhoto(e.aid, e.pid, e.data)) imagesOk = false; });
+    if (!imagesOk) {
+      // Bilder, die nicht durchkamen, bleiben im Korb.
+      SS.store.clearOutbox();
+      images.filter((e) => !SS.store.photoByAid(e.aid)).forEach((e) => SS.store.queue(e));
+      return false;
+    }
     SS.store.clearOutbox();
     SS.state.pending = false;
     SS.toast(list.length + " offline Gemachtes is nachgreicht worn.", "ok");
@@ -4910,6 +5235,8 @@ window.SS = (function () {
             });
           }
           sendConn(conn, { t: "hello", name: guestName || "Gast", pid: myPid });
+          // Welche Bilder hat dieses Gerät schon? Nur die fehlenden kommen nach.
+          sendConn(conn, { t: "want", keys: SS.store ? SS.store.photoKeys(code) : [] });
           resolve({ code: code });
         });
         conn.on("error", (err) => {
@@ -5009,7 +5336,8 @@ window.SS = (function () {
   Object.assign(SS.net, {
     init, available, setStatus, flushOutbox, rejoin,
     createGroup, joinGroup, leave, guestCount, reopen,
-    sendToHost, broadcastState, broadcast, sendTo,
+    sendToHost, broadcastState, broadcast, sendTo, wireSnapshot,
+    sendPhoto, receivePhoto, missingPhotos, photoBudget,
   });
 })();
 
@@ -5025,6 +5353,10 @@ window.SS = (function () {
   "use strict";
   const SS = window.SS;
   const $ = SS.$, $$ = SS.$$, el = SS.el;
+
+  // Läuft gerade ein Bild-Upload? Verhindert, dass zweimal getippt wird und
+  // dasselbe Bild doppelt rausgeht.
+  let shooting = false;
 
   /* ── Bausteine ────────────────────────────────────────────────────────── */
   function btn(label, opts) {
@@ -5503,11 +5835,27 @@ window.SS = (function () {
     return null;
   }
 
+  /**
+   * Bild aufnehmen und hochladen. Gibt sofort Rückmeldung, damit am Handy
+   * klar ist, dass es geklappt hat — dort sieht man den kleinen Fortschritt
+   * am Rand leicht nicht.
+   */
   function shootPhoto(pid, aid) {
+    if (shooting) { SS.toast("Des Bild is scho unterwegs.", "err"); return; }
+    SS.toast("Kamera oder Galerie aufmachen …", "ok");
     SS.proof.pick().then((res) => {
       if (!res) return;
-      SS.actAs(pid, "photo", { pid: pid, aid: aid, data: res.data });
-      SS.toast("Nachweis gespeichert. Der Wirt schaut gleich drüber.", "ok");
+      shooting = true;
+      SS.toast("Bild wird hochgeladen …", "ok");
+      try {
+        SS.actAs(pid, "photo", { pid: pid, aid: aid, data: res.data });
+        const kb = Math.max(1, Math.round(res.bytes / 1024));
+        SS.toast("Nachweis drin (" + kb + " KB). Der Wirt schaut gleich drüber.", "ok");
+      } catch (e) {
+        SS.toast("Des hot ned klappt: " + e.message, "err");
+      } finally {
+        shooting = false;
+      }
     });
   }
   function hostConfirm(pid, aid) { SS.actAs(pid, "confirm", { pid: pid, aid: aid }); SS.toast("Freigegeben.", "ok"); }
@@ -5757,12 +6105,48 @@ window.SS = (function () {
   }
 
   /* ── Album ────────────────────────────────────────────────────────────── */
+  /** Ein Bild groß anzeigen — Tippen aufs Album-Bild. */
+  function openLightbox(photo, all, index) {
+    let i = index;
+    const wrap = el("div", { class: "lightbox" });
+    const img = el("img", { class: "lightbox-img", src: all[i].data, alt: "Nachweis" });
+    const cap = el("div", { class: "lightbox-cap" });
+    function draw() {
+      const p = all[i];
+      img.src = p.data;
+      cap.innerHTML = "";
+      const who = SS.player(p.pid);
+      cap.appendChild(el("div", { class: "lightbox-who" }, [
+        avatar(who || { name: p.who || "Gast" }, "tiny"),
+        el("strong", { text: (who && who.name) || p.who || "Gast" }),
+        el("span", { class: "muted small", text: p.at ? new Date(p.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) + " Uhr" : "" }),
+      ]));
+      if (p.text) cap.appendChild(el("p", { class: "lightbox-text", text: p.text }));
+    }
+    draw();
+    const close = btn("Zumachen", { kind: "ghost", onClick: () => wrap.remove() });
+    const nav = el("div", { class: "lightbox-nav" }, [
+      btn("‹", { kind: "ghost", disabled: all.length < 2, onClick: () => { i = (i - 1 + all.length) % all.length; draw(); } }),
+      el("span", { class: "muted small", text: "Bild " + (i + 1) + " von " + all.length }),
+      btn("›", { kind: "ghost", disabled: all.length < 2, onClick: () => { i = (i + 1) % all.length; draw(); } }),
+      close,
+    ]);
+    wrap.appendChild(img);
+    wrap.appendChild(cap);
+    wrap.appendChild(nav);
+    wrap.addEventListener("click", (e) => { if (e.target === wrap) wrap.remove(); });
+    document.body.appendChild(wrap);
+  }
+
   function viewAlbum() {
-    const photos = SS.allProofs();
+    const photos = SS.allProofs().filter((p) => p.data);
+    const missing = SS.allProofs().filter((p) => !p.data);
+    const total = SS.alive().length;
+    const withPhoto = new Set(photos.map((p) => p.pid)).size;
     const body = el("div", { class: "wrap" }, [
       el("section", { class: "album-head" }, [
         el("h1", { text: "Album des Abends" }),
-        el("p", { class: "muted", text: photos.length + " Nachweise · " + SS.alive().length + " Leut" }),
+        el("p", { class: "muted", text: photos.length + " Bilder · von " + withPhoto + " von " + total + " Leut" }),
       ]),
     ]);
     if (!photos.length) {
@@ -5771,14 +6155,38 @@ window.SS = (function () {
       const byPid = {};
       photos.forEach((p) => { (byPid[p.pid] = byPid[p.pid] || []).push(p); });
       Object.keys(byPid).forEach((pid) => {
+        const mine = byPid[pid];
         body.appendChild(el("section", { class: "panel" }, [
-          el("div", { class: "panel-head" }, [avatar(SS.player(pid) || { name: "Gast" }), el("h2", { text: SS.nameOf(pid) }), pill(String(byPid[pid].length) + " Bilder")]),
-          el("div", { class: "album-grid" }, byPid[pid].map((p) => el("figure", { class: "album-item" }, [
-            SS.proof.img(p.data),
-            el("figcaption", { class: "muted small", text: p.text || "" }),
-          ]))),
+          el("div", { class: "panel-head" }, [
+            avatar(SS.player(pid) || { name: mine[0].who || "Gast" }),
+            el("h2", { text: SS.nameOf(pid) }),
+            pill(mine.length + (mine.length === 1 ? " Bild" : " Bilder"), "ghost"),
+          ]),
+          el("div", { class: "album-grid" }, mine.map((p, i) => {
+            const t = SS.findTaskAnywhere(p.aid);
+            const rev = SS.reviewOf(p.aid);
+            const bad = (rev.bad || []).length;
+            return el("figure", {
+              class: "album-item" + (bad ? " flagged" : ""),
+              onclick: () => openLightbox(p, mine, i),
+              role: "button",
+              tabindex: "0",
+            }, [
+              SS.proof.img(p.data),
+              el("figcaption", {}, [
+                el("span", { class: "album-time", text: p.at ? new Date(p.at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) + " Uhr" : "" }),
+                t && t.task.voided ? pill("ungültig", "bad") : t && t.task.confirmed ? pill("abgehakt", "gold") : bad ? pill(bad + " dagegen", "warn") : null,
+                p.text ? el("span", { class: "album-text", text: p.text }) : null,
+              ]),
+            ]);
+          })),
         ]));
       });
+      if (missing.length) {
+        body.appendChild(el("section", { class: "panel" }, [
+          el("p", { class: "muted small", text: missing.length + " Nachweis(e) sind ohne Bild — die kommen, sobald das Gerät wieder Netz hat." }),
+        ]));
+      }
     }
     body.appendChild(el("div", { class: "row-actions" }, [
       btn("Bericht anzeigen", { kind: "primary", onClick: openReport }),
