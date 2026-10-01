@@ -100,10 +100,11 @@ Sie sind per `.gitignore` ausgenommen und gehören nicht ins Repository.
   Upload, Album bei allen gleich, Nachzügler bekommt alles nach.
 - `_repro.mjs` — die beiden gemeldeten Fehler (Gast-Foto kommt nicht an,
   Album zeigt keine Bilder).
-- `_abend.mjs` — 34 Prüfungen zu drei Themen: Aufgabenliste (nur Bilder,
+- `_abend.mjs` — 39 Prüfungen zu drei Themen: Aufgabenliste (nur Bilder,
   keine Videos, Kennungen eindeutig, jede Kategorie in jedem Modus belegt),
   Beitrittsdialog (bleibt offen, zeigt Fortschritt, nennt Fehler, Knopf
-  gesperrt) und Abend beenden (Endstand beim Wirt und beim Gast, gleicher
+  gesperrt), Beitritt im Erfolgsfall (Dialog schließt sich, Gast landet in
+  der Lobby) und Abend beenden (Endstand beim Wirt und beim Gast, gleicher
   Endzeitpunkt, überlebt Neustart, wieder aufmachbar).
 - `_live.mjs` — dasselbe gegen GitHub Pages.
 - `_dbg.mjs` — Wegwerfskript zum Nachschauen.
