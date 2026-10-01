@@ -54,15 +54,59 @@
   }
 
   /* ── Senden ───────────────────────────────────────────────────────────── */
-  function sendToHost(msg) {
-    if (hostConn && hostConn.open) {
-      try { hostConn.send(msg); return true; } catch (e) { return false; }
+  // Der Datenkanal nimmt rund 16 KB je Nachricht. Alles, was darüber liegt,
+  // wird in Stücke zerlegt und am anderen Ende wieder zusammengesetzt. Das
+  // betrifft vor allem den Zustand einer großen Runde: Bei 100 Leuten ist die
+  // Aufgabe-Liste allein größer als der Kanal fasst.
+  const MAX_MSG = 12000;       // darüber wird gestückelt
+  const FRAME = 6000;          // Nutzdaten je Stück
+  let frameSeq = 0;
+
+  /** Eine Nachricht in den Kanal geben — bei Bedarf in Stücken. */
+  function push(conn, msg) {
+    if (!conn || !conn.open) return false;
+    let text;
+    try { text = JSON.stringify(msg); } catch (e) { return false; }
+    if (text.length <= MAX_MSG) { try { conn.send(msg); return true; } catch (e) { return false; } }
+    const id = "f" + (frameSeq++) + "-" + Date.now().toString(36);
+    const total = Math.ceil(text.length / FRAME);
+    try {
+      conn.send({ t: "big", id: id, seq: 0, total: total });
+      for (let i = 0; i < total; i++) conn.send({ t: "big", id: id, seq: i + 1, d: text.slice(i * FRAME, (i + 1) * FRAME) });
+      return true;
+    } catch (e) { return false; }
+  }
+
+  const bigBoxes = new Map();  // id -> { parts: Map, total, got, at }
+
+  /** Ein Stück einer großen Nachricht aufnehmen. */
+  function takeBig(conn, msg) {
+    const id = msg.id;
+    if (!id) return null;
+    let box = bigBoxes.get(id);
+    if (!box) { box = { parts: new Map(), total: 0, got: 0, at: Date.now() }; bigBoxes.set(id, box); }
+    if (msg.seq === 0) { box.total = msg.total; box.at = Date.now(); return null; }
+    if (!box.total) return null;
+    if (typeof msg.d === "string" && !box.parts.has(msg.seq)) { box.parts.set(msg.seq, msg.d); box.got++; }
+    if (box.got < box.total) {
+      if (Date.now() - box.at > 60000) bigBoxes.delete(id);
+      return null;
     }
-    return false;
+    let text = "";
+    for (let i = 1; i <= box.total; i++) {
+      const part = box.parts.get(i);
+      if (part === undefined) { bigBoxes.delete(id); return null; }
+    }
+    for (let i = 1; i <= box.total; i++) text += box.parts.get(i);
+    bigBoxes.delete(id);
+    try { return JSON.parse(text); } catch (e) { return null; }
+  }
+
+  function sendToHost(msg) {
+    return push(hostConn, msg);
   }
   function sendConn(conn, msg) {
-    if (conn && conn.open) { try { conn.send(msg); return true; } catch (e) { return false; } }
-    return false;
+    return push(conn, msg);
   }
   function broadcast(msg, exceptPid) {
     conns.forEach((c) => { if (c.open && c.pid !== exceptPid) sendConn(c, msg); });
@@ -73,8 +117,117 @@
   }
   function guestCount() { return conns.filter((c) => c.open).length; }
 
-  /* ── Zustandsverteilung ───────────────────────────────────────────────── */
+  /* ── Fotos übertragen ─────────────────────────────────────────────────────
+     Ein Bild ist groß, aber die Stückelung oben erledigt das: Es geht als
+     eine Nachricht raus und wird unterwegs zerlegt. Wichtig ist hier nur der
+     Weg — ein Gast schickt sein Bild an den Wirt, der es ablegt und an alle
+     anderen verteilt. So hat am Ende jedes Gerät dasselbe Album.
+     ──────────────────────────────────────────────────────────────────────── */
+
+  const PHOTO_BYTES_MAX = 600 * 1024;  // größer wird nicht übertragen
+
+  // Wie groß das verkleinerte Bild höchstens sein soll. Ein Handy liefert
+  // sonst mehrere Megabyte, und die laufen weder durch den Kanal noch in den
+  // Speicher. Am Rechner darf es etwas mehr sein, da ist der Speicher größer.
+  function photoBudget() {
+    const touch = (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0)
+      || (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    return touch ? 180 * 1024 : 320 * 1024;
+  }
+
+  /**
+   * Ein Bild verschicken. dataUrl darf null sein: Dann wird nur der Platz im
+   * Album vermerkt, damit alle wissen, dass dieses Bild zu dieser Aufgabe
+   * gehört — das Bild selbst kommt beim nächsten Kontakt nach.
+   * Mit `target` geht es gezielt an eine Verbindung (für Nachzügler).
+   */
+  function sendPhoto(aid, pid, dataUrl, target) {
+    if (dataUrl && dataUrl.length * 0.75 > PHOTO_BYTES_MAX) {
+      SS.toast("Des Bild is z'groß zum Verschicken.", "err");
+      return false;
+    }
+    const found = SS.findTaskAnywhere(aid);
+    const msg = {
+      t: "img", aid: aid, pid: pid, who: SS.nameOf(pid),
+      text: found ? found.task.text : "", data: dataUrl || null,
+    };
+    if (target) return sendConn(target, msg);
+    let ok;
+    if (SS.state.role === "host") { broadcast(msg); ok = true; }
+    // Bewusst über die öffentliche Funktion: So bleibt dieselbe Naht, über
+    // die auch alles andere geht — und ein Test kann sie ersetzen.
+    else ok = SS.net.sendToHost(msg);
+    // Nicht durchgekommen: Beim nächsten Kontakt nochmal versuchen.
+    if (!ok && dataUrl && SS.store) SS.store.queue({ kind: "bild", aid: aid, pid: pid, data: dataUrl, at: Date.now() });
+    return ok;
+  }
+
+  /** Ein Bild aufnehmen — und am Wirt an alle anderen weiterreichen. */
+  function receivePhoto(conn, msg) {
+    const aid = msg.aid;
+    if (!aid) return false;
+    if (SS.store) {
+      SS.store.addPhoto({
+        aid: aid, pid: msg.pid, data: msg.data || null, who: msg.who,
+        groupCode: SS.state.code || null, text: msg.text || "",
+      });
+    }
+    // Die Aufgabe gilt damit als nachgewiesen — auf jedem Gerät.
+    if (SS.notePhoto) { SS.notePhoto(msg.pid, aid); SS.persist(); if (SS.renderCurrent) SS.renderCurrent(); }
+    // Der Absender bekommt sein Bild nicht zurück, er hat es ja selbst.
+    if (SS.state.role === "host") broadcast(msg, conn && conn.pid);
+    SS.emit("album");
+    return true;
+  }
+
+  /** Wie viele Bilder fehlen hier im Vergleich zu einer Liste von Kennungen? */
+  function missingPhotos(keys) {
+    if (!SS.store || !Array.isArray(keys)) return [];
+    const have = SS.store.photoKeys(SS.state.code || null);
+    return keys.filter((k) => have.indexOf(k) === -1);
+  }
+
+  /**
+   * Einem frisch dazugekommenen Gast alle Bilder schicken, die er noch nicht
+   * hat. Er meldet vorher mit "want", welche er schon hat — sonst gingen bei
+   * jedem Beitritt alle Bilder der Runde nochmal durch den Kanal.
+   */
+  function sendMissingPhotos(conn) {
+    if (!SS.store) return;
+    const have = (conn && conn.haveKeys) || [];
+    const mine = SS.store.album().filter((p) => p.data && p.aid);
+    const group = SS.state.code || null;
+    mine.filter((p) => !group || !p.groupCode || p.groupCode === group)
+      .filter((p) => have.indexOf(p.aid) === -1)
+      .forEach((p) => sendPhoto(p.aid, p.pid, p.data, conn));
+  }
+
+  /** Am Wirt: ein Gast meldet, welche Bilder er schon hat. */
+  function noteHaveKeys(conn, keys) {
+    conn.haveKeys = Array.isArray(keys) ? keys : [];
+  }
+
+  /**
+   * Was über den Kanal geht. Die Aufgabentexte bleiben weg: Die entstehen am
+   * anderen Ende aus Aufgabenkennung, Zielperson und Keim neu. Sonst wäre
+   * die Nachricht bei einer großen Runde größer als der Kanal fasst.
+   * Die Bilder gehen ebenfalls nicht mit — die laufen als eigene Stücke.
+   */
   function wireSnapshot() {
+    const tasks = {};
+    Object.keys(SS.state.assignments || {}).forEach((pid) => {
+      tasks[pid] = (SS.state.assignments[pid] || []).map((t) => {
+        const o = { aid: t.aid, taskId: t.taskId, type: t.type, level: t.level, points: t.points };
+        if (t.target) o.target = t.target;
+        if (t.photo) o.photo = 1;
+        if (t.confirmed) o.confirmed = 1;
+        if (t.confirmedBy) o.confirmedBy = t.confirmedBy;
+        if (t.voided) o.voided = 1;
+        if (t.at) o.at = t.at;
+        if (t.flagBy && t.flagBy.length) o.flagBy = t.flagBy;
+        return o;
+      });
+    });
     return {
       players: SS.state.players,
       hostId: SS.state.hostId,
@@ -82,11 +235,12 @@
       groupName: SS.state.groupName,
       seed: SS.state.seed,
       ring: SS.state.ring,
-      assignments: SS.state.assignments,
+      assignments: tasks,
       sidequests: SS.state.sidequests,
       proposals: SS.state.proposals,
       settings: SS.state.settings,
       reviews: SS.state.reviews,
+      photoKeys: SS.store ? SS.store.photoKeys(SS.state.code || null) : [],
       log: SS.state.log.slice(-40),
     };
   }
@@ -129,6 +283,12 @@
 
   function onData(conn, msg) {
     if (!msg || typeof msg !== "object") return;
+    // Eine gestückelte Nachricht: erst zusammensetzen, dann verarbeiten.
+    if (msg.t === "big") {
+      const full = takeBig(conn, msg);
+      if (full) onData(conn, full);
+      return;
+    }
     if (SS.state.role === "guest") handleGuestIncoming(msg);
     else handleHostIncoming(conn, msg);
   }
@@ -151,6 +311,11 @@
       }
       case "state": {
         applyState(msg.s);
+        // Bilder, die hier fehlen, beim Wirt anfordern.
+        if (msg.s && msg.s.photoKeys) {
+          const missing = missingPhotos(msg.s.photoKeys);
+          if (missing.length) sendToHost({ t: "want", keys: SS.store ? SS.store.photoKeys(SS.state.code || null) : [] });
+        }
         SS.emit("net");
         break;
       }
@@ -177,6 +342,11 @@
       case "act": {
         SS.applyActionRaw(msg.pid, msg.name, msg.payload);
         SS.emit("net");
+        break;
+      }
+      case "img": {
+        // Als Gast gibt es hier keine Gegenstelle — die gibt es nur am Wirt.
+        receivePhoto(null, msg);
         break;
       }
       case "chat": {
@@ -222,6 +392,8 @@
         broadcast({ t: "state", s: wireSnapshot() });
         if (SS.state.phase === "running") broadcast({ t: "deal" });
         if (SS.state.phase === "review") broadcast({ t: "review" });
+        // Bilder, die dieser Gast noch nicht hat, gezielt nachschicken.
+        sendMissingPhotos(conn);
         setStatus("online");
         SS.emit("net");
         break;
@@ -232,6 +404,10 @@
         if (!pid) return;
         SS.applyActionRaw(pid, msg.name, msg.payload);
         SS.emit("net");
+        break;
+      }
+      case "img": {
+        receivePhoto(conn, msg);
         break;
       }
       case "chat": {
@@ -258,6 +434,13 @@
         break;
       }
       case "req": sendConn(conn, { t: "state", s: wireSnapshot() }); break;
+      case "want": {
+        // Ein Gast meldet, welche Bilder er schon hat. Danach weiß der Wirt,
+        // was noch fehlt — auch bei einem Gast, der neu dazukommt.
+        noteHaveKeys(conn, msg.keys);
+        sendMissingPhotos(conn);
+        break;
+      }
       case "outbox": {
         // Nachgereichtes aus der offline verbrachten Zeit.
         const evts = Array.isArray(msg.events) ? msg.events : [];
@@ -287,11 +470,44 @@
 
   function applyState(s) {
     if (!s) return;
-    ["players", "hostId", "phase", "groupName", "seed", "ring", "assignments",
+    ["players", "hostId", "phase", "groupName", "seed", "ring",
       "sidequests", "proposals", "settings", "reviews"].forEach((k) => {
       if (s[k] !== undefined) SS.state[k] = s[k];
     });
+    if (s.assignments) SS.state.assignments = mergeAssignments(s.assignments);
     if (Array.isArray(s.log) && s.log.length) SS.state.log = s.log;
+  }
+
+  /**
+   * Die Aufgaben aus der Zustandsnachricht mit den eigenen zusammenführen.
+   * Der Text steht nicht in der Nachricht, er entsteht hier neu — aus
+   * Aufgabenkennung, Zielperson und Keim. Was schon da war, bleibt stehen.
+   */
+  function mergeAssignments(remote) {
+    const out = {};
+    const seed = String(SS.state.seed || "seidla");
+    Object.keys(remote).forEach((pid) => {
+      const mine = SS.state.assignments[pid] || [];
+      out[pid] = (remote[pid] || []).map((r) => {
+        const local = mine.find((t) => t.aid === r.aid);
+        const base = SS.tasks ? SS.tasks.taskById(r.taskId) : null;
+        let text = local && local.text ? local.text : "";
+        if (!text && base) {
+          const rng = SS.seededRng(seed + ":" + r.aid);
+          text = SS.assign.render(base.text, r.target ? SS.nameOf(r.target) : null, rng);
+        }
+        const merged = Object.assign({}, local || {}, r, { text: text || "(Aufgabe unbekannt)" });
+        // photo kommt als bloßes Ja/Nein — die eigene Bildkennung behalten.
+        merged.photo = r.photo ? ((local && local.photo) || r.aid) : null;
+        merged.confirmed = !!r.confirmed;
+        merged.voided = !!r.voided;
+        merged.flagBy = r.flagBy || (local && local.flagBy) || [];
+        merged.flagged = merged.flagBy.length;
+        merged.done = !!r.photo;
+        return merged;
+      });
+    });
+    return out;
   }
 
   /* ── Ausgangskorb: offline Gespieltes nachreichen ─────────────────────── */
@@ -301,7 +517,18 @@
     if (SS.state.connection !== "online") return false;
     const list = SS.store.outbox();
     if (!list.length) return false;
-    if (!sendToHost({ t: "outbox", events: list })) return false;
+    // Bilder werden stückweise geschickt, alles andere als eine Nachricht.
+    const plain = list.filter((e) => e.kind !== "bild");
+    const images = list.filter((e) => e.kind === "bild" && e.data);
+    if (plain.length && !sendToHost({ t: "outbox", events: plain })) return false;
+    let imagesOk = true;
+    images.forEach((e) => { if (!sendPhoto(e.aid, e.pid, e.data)) imagesOk = false; });
+    if (!imagesOk) {
+      // Bilder, die nicht durchkamen, bleiben im Korb.
+      SS.store.clearOutbox();
+      images.filter((e) => !SS.store.photoByAid(e.aid)).forEach((e) => SS.store.queue(e));
+      return false;
+    }
     SS.store.clearOutbox();
     SS.state.pending = false;
     SS.toast(list.length + " offline Gemachtes is nachgreicht worn.", "ok");
@@ -460,6 +687,8 @@
             });
           }
           sendConn(conn, { t: "hello", name: guestName || "Gast", pid: myPid });
+          // Welche Bilder hat dieses Gerät schon? Nur die fehlenden kommen nach.
+          sendConn(conn, { t: "want", keys: SS.store ? SS.store.photoKeys(code) : [] });
           resolve({ code: code });
         });
         conn.on("error", (err) => {
@@ -559,6 +788,7 @@
   Object.assign(SS.net, {
     init, available, setStatus, flushOutbox, rejoin,
     createGroup, joinGroup, leave, guestCount, reopen,
-    sendToHost, broadcastState, broadcast, sendTo,
+    sendToHost, broadcastState, broadcast, sendTo, wireSnapshot,
+    sendPhoto, receivePhoto, missingPhotos, photoBudget,
   });
 })();
