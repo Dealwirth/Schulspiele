@@ -94,9 +94,26 @@ Sie sind per `.gitignore` ausgenommen und gehören nicht ins Repository.
   (signiert, gefälscht, Cookie-Rettung, Neustart), Layout, 100 Leute.
 - `_online.mjs` — 29 Prüfungen im echten Wirt-Gast-Betrieb über PeerJS mit
   zwei Browsern: Beitritt, Aufgaben, Fotonachweis, Freigabe, Chat in beide
-  Richtungen, Wertung, Wiedereintritt nach Neustart, Nachreichen ohne Netz.
+  Richtungen, Wertung, Wiedereintritt nach Neustart, Nachreichen ohne Netz,
+  und eine Runde mit 100 Leuten, deren Zustand durch den Kanal muss.
+- `_photos.mjs` — Fotos zwischen drei Geräten über echtes PeerJS: großer
+  Upload, Album bei allen gleich, Nachzügler bekommt alles nach.
+- `_repro.mjs` — die beiden gemeldeten Fehler (Gast-Foto kommt nicht an,
+  Album zeigt keine Bilder).
 - `_live.mjs` — dasselbe gegen GitHub Pages.
 - `_dbg.mjs` — Wegwerfskript zum Nachschauen.
+
+## Nachrichten und Bilder
+
+Der Datenkanal nimmt rund 16 KB je Nachricht. Alles darüber — ein Bild, aber
+auch der Zustand einer großen Runde — wird in `push()` gestückelt und in
+`takeBig()` wieder zusammengesetzt. Wer daran arbeitet: `onData()` fängt die
+Stücke ab, bevor sie an die Handler gehen.
+
+Bilder laufen immer über den Wirt, der sie ablegt und an alle ausser den
+Absender weiterreicht. Die Aufgabe merkt sich nur die Kennung des Bildes; das
+Bild selbst liegt im Album. Deshalb darf eine Aufgabenkarte nie das Bild
+mitschicken.
 
 Der QR-Code wird nicht nur auf „sieht aus wie ein QR-Code" geprüft, sondern
 mit einem echten Decoder gelesen:
