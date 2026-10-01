@@ -232,6 +232,7 @@
       players: SS.state.players,
       hostId: SS.state.hostId,
       phase: SS.state.phase,
+      endedAt: SS.state.endedAt || null,
       groupName: SS.state.groupName,
       seed: SS.state.seed,
       ring: SS.state.ring,
@@ -335,7 +336,10 @@
       }
       case "closed": {
         SS.state.phase = "over";
-        SS.toast("Der Wirt hat den Abend abgeschlossen.", "ok");
+        if (msg.endedAt) SS.state.endedAt = msg.endedAt;
+        SS.toast("Der Wirt hat den Abend beendet.", "ok");
+        // Direkt zum Endstand — dort steht das Ergebnis für alle.
+        if (SS.ui && SS.state.route !== "end") SS.ui.go("end");
         SS.emit("net");
         break;
       }
@@ -470,12 +474,15 @@
 
   function applyState(s) {
     if (!s) return;
-    ["players", "hostId", "phase", "groupName", "seed", "ring",
+    ["players", "hostId", "phase", "endedAt", "groupName", "seed", "ring",
       "sidequests", "proposals", "settings", "reviews"].forEach((k) => {
       if (s[k] !== undefined) SS.state[k] = s[k];
     });
     if (s.assignments) SS.state.assignments = mergeAssignments(s.assignments);
     if (Array.isArray(s.log) && s.log.length) SS.state.log = s.log;
+    // Der Gast muss den empfangenen Stand auch behalten. Ohne das war nach
+    // einem Neustart der alte Stand wieder da — der Endstand verschwand.
+    if (SS.persist) SS.persist();
   }
 
   /**
@@ -637,7 +644,9 @@
   }
 
   /* ── Gruppe betreten (Gast) ───────────────────────────────────────────── */
-  function joinGroup(code, guestName) {
+  function joinGroup(code, guestName, opts) {
+    opts = opts || {};
+    const step = (s) => { if (typeof opts.onStep === "function") { try { opts.onStep(s); } catch (e) {} } };
     return new Promise((resolve, reject) => {
       if (!ensureLib()) return reject(new Error("Netzwerk-Bibliothek konnte nicht geladen werden."));
       code = String(code || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -670,11 +679,13 @@
       }, 22000);
 
       peer.on("open", () => {
+        step("broker");
         const conn = peer.connect(peerIdFor(code), { reliable: true, serialization: "json" });
         hostConn = conn;
         attachConn(conn, { isHost: true });
 
         conn.on("open", () => {
+          step("host");
           settled = true;
           clearTimeout(giveUpAfter);
           SS.state.mode = "online";

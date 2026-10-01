@@ -379,6 +379,86 @@ select{cursor:pointer}
 .pill.bad{background:rgba(156,43,35,.2);border-color:rgba(156,43,35,.6);color:#f3c9c4}
 .pill.warn{background:rgba(217,165,33,.18);border-color:rgba(217,165,33,.55);color:#f2dc9e}
 
+/* ── Ende des Abends ───────────────────────────────────────────────────── */
+.end-wrap{max-width:820px}
+.end-head{text-align:center;padding:22px 14px 6px;animation:fadeUp .5s ease both}
+.end-kicker{
+  margin:0;font-size:12.5px;text-transform:uppercase;letter-spacing:2.4px;
+  color:var(--copper);
+}
+.end-head h1{
+  margin:6px 0 8px;font-family:var(--font-serif);font-size:34px;color:var(--gold);
+  text-shadow:0 2px 12px rgba(217,165,33,.25);
+}
+.end-winner{
+  display:flex;align-items:center;gap:16px;justify-content:center;
+  padding:20px;margin:14px 0;border-radius:var(--radius);
+  background:linear-gradient(180deg,rgba(217,165,33,.16),rgba(217,165,33,.05));
+  border:1px solid rgba(217,165,33,.5);
+  box-shadow:0 10px 34px rgba(217,165,33,.14);
+  animation:fadeUp .6s ease both .1s;
+}
+.end-winner h2{margin:0;font-family:var(--font-serif);font-size:26px;color:var(--cream)}
+.end-winner .end-points{margin:2px 0 0;color:var(--gold);font-size:19px;font-weight:700}
+.rank-table tr.rank-first td{color:var(--gold);font-weight:600}
+/* Die Rangliste hat fünf Spalten — am Handy wird sie geschoben statt
+   gestaucht, sonst schiebt sie die ganze Seite in die Breite. */
+.table-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.table-scroll .rank-table{min-width:max-content}
+.end-wrap .report-text{max-width:100%}
+.end-text{margin:16px 0}
+.end-text summary{cursor:pointer;color:var(--copper);font-size:14px;padding:6px 0}
+.end-text textarea{margin-top:8px}
+
+/* ── Rückmeldung im Beitrittsdialog ────────────────────────────────────── */
+.join-status{
+  display:flex;align-items:center;gap:9px;margin:12px 0 0;padding:10px 12px;
+  border-radius:10px;font-size:14px;
+  background:rgba(53,80,125,.18);border:1px solid rgba(53,80,125,.45);color:var(--cream);
+  animation:fadeUp .25s ease both;
+}
+.join-status.ok{background:rgba(61,107,69,.2);border-color:rgba(61,107,69,.55)}
+.join-status.err{background:rgba(156,43,35,.2);border-color:rgba(156,43,35,.6)}
+.join-status.ok .spin{display:none}
+.join-status.err .spin{display:none}
+.spin{
+  width:13px;height:13px;border-radius:50%;flex:none;
+  border:2px solid rgba(244,233,212,.3);border-top-color:var(--gold);
+  animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* Karten und Panels kommen leicht herein — nicht grell, nur lebendig. */
+.panel,.task,.album-item{animation:fadeUp .3s ease both}
+.mode-chip,.type-chip{transition:transform .12s ease,border-color .18s ease,background .18s ease}
+.mode-chip:hover,.type-chip:hover:not(:disabled){transform:translateY(-1px)}
+.btn{transition:background .18s ease,transform .1s ease,color .18s ease}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.progress-fill{transition:width .5s cubic-bezier(.3,.9,.3,1)}
+
+/* ── Was gerade läuft ──────────────────────────────────────────────────── */
+.feed-panel{margin-top:14px}
+.live-dot{
+  width:9px;height:9px;border-radius:50%;background:var(--green);flex:none;
+  box-shadow:0 0 0 0 rgba(61,107,69,.7);animation:pulse 2.2s ease-out infinite;
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(61,107,69,.6)}
+  70%{box-shadow:0 0 0 9px rgba(61,107,69,0)}
+  100%{box-shadow:0 0 0 0 rgba(61,107,69,0)}
+}
+.feed{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.feed-item{
+  display:flex;gap:10px;align-items:baseline;font-size:13.5px;padding:5px 6px;
+  border-radius:7px;color:var(--cream-2);
+}
+.feed-item:first-child{background:rgba(255,255,255,.05);animation:fadeUp .35s ease both}
+.feed-item.ok .feed-text{color:#c6e0c9}
+.feed-item.err .feed-text{color:#f0c4bf}
+.feed-at{font-size:11px;color:#8a7458;white-space:nowrap;font-variant-numeric:tabular-nums}
+.feed-text{word-break:break-word}
+
 /* ── Schmale Geräte ────────────────────────────────────────────────────── */
 @media (max-width:600px){
   .wrap{padding:16px 12px 50px}
@@ -2835,6 +2915,9 @@ window.SS = (function () {
     box.appendChild(bodyNode);
     const act = el("div", { class: "modal-actions" });
     (actions || [{ label: "Zumachen" }]).forEach((a) => {
+      // Ein fertiger Knopf darf auch direkt übergeben werden — dann kann der
+      // Dialog selbst Fortschritt und Sperre daran hängen.
+      if (a.node) { act.appendChild(a.node); return; }
       act.appendChild(
         el("button", {
           class: "btn " + (a.kind === "primary" ? "btn-gold" : a.kind === "danger" ? "btn-danger" : "btn-outline"),
@@ -2909,6 +2992,7 @@ window.SS = (function () {
       confirmMode: "self",    // Jeder hakt seine eigene Aufgabe selbst ab.
     },
     reviews: {},              // aid -> { ok:[pid], bad:[pid] }
+    endedAt: null,            // wann der Wirt den Abend beendet hat
     log: [],
   };
 
@@ -3227,6 +3311,89 @@ window.SS = (function () {
     return true;
   }
 
+  /* ── Abend beenden ────────────────────────────────────────────────────── */
+  /**
+   * Der Wirt beendet den Abend. Das ist mehr als ein Schalter: Der Stand
+   * wird eingefroren (damit das Ergebnis feststeht), im Speicher festgehalten
+   * und an alle Geräte verteilt. Danach sieht jeder die Abschlussansicht mit
+   * Endstand — auch wer erst später wieder Netz hat.
+   */
+  function endEvening() {
+    if (state.phase === "over") return false;
+    state.phase = "over";
+    state.endedAt = Date.now();
+    state.route = "end";
+    logLine("Der Wirt hat den Abend beendet.", "ok");
+    if (SS.store) SS.store.addChronicle({
+      type: "ende", groupCode: state.code || null, group: !!state.code,
+      who: null, game: state.groupName,
+      task: "Abend beendet (" + alive().length + " Leut, " + allProofs().length + " Nachweise)",
+    });
+    persist();
+    if (isHost()) {
+      sync();
+      if (state.mode === "online") net.broadcast({ t: "closed", endedAt: state.endedAt });
+    }
+    return true;
+  }
+
+  /** Zurück in den laufenden Abend — falls zu früh beendet wurde. */
+  function reopenEvening() {
+    if (state.phase !== "over") return false;
+    state.phase = "review";
+    state.endedAt = null;
+    logLine("Der Wirt hat den Abend wieder aufgemacht.", "");
+    persist();
+    if (isHost()) {
+      sync();
+      if (state.mode === "online") net.broadcast({ t: "review" });
+    }
+    return true;
+  }
+
+  /** Kennzahlen für die Abschlussansicht. */
+  function summary() {
+    const r = ranking();
+    const tasks = Object.values(state.assignments).reduce((n, a) => n + a.length, 0);
+    const confirmed = Object.values(state.assignments).reduce((n, a) => n + a.filter((t) => t.confirmed && !isVoid(t)).length, 0);
+    const voided = Object.values(state.assignments).reduce((n, a) => n + a.filter((t) => t.voided).length, 0);
+    const sidequests = state.sidequests.filter((q) => Object.keys(q.done || {}).length).length;
+    return {
+      players: alive().length,
+      tasks: tasks,
+      confirmed: confirmed,
+      voided: voided,
+      sidequests: sidequests,
+      proofs: allProofs().length,
+      best: r[0] || null,
+      ranking: r,
+      endedAt: state.endedAt,
+    };
+  }
+
+  /** Die Abschlusszeilen — auch als Text zum Verschicken. */
+  function buildSummary() {
+    const s = summary();
+    const L = [];
+    L.push("SEIDLA — Ende des Abends");
+    L.push("Runde: " + state.groupName + (state.code ? " (" + state.code + ")" : ""));
+    if (s.endedAt) L.push("Beendet: " + new Date(s.endedAt).toLocaleString("de-DE"));
+    L.push("");
+    L.push(s.players + " Leut · " + s.confirmed + " von " + s.tasks + " Aufgaben erledigt · " + s.proofs + " Nachweise");
+    if (s.sidequests) L.push(s.sidequests + " Sidequests geschafft");
+    if (s.voided) L.push(s.voided + " Aufgabe(n) für ungültig erklärt");
+    L.push("");
+    if (s.ranking.length) {
+      L.push("ENDSTAND");
+      s.ranking.forEach((x, i) => {
+        L.push((i + 1) + ". " + x.name + " — " + x.points + " Punkte" + (x.done ? " (" + x.done + "/" + x.total + ")" : ""));
+      });
+      L.push("");
+      L.push("Glückwunsch an " + s.ranking[0].name + "!");
+    }
+    return L.join("\n");
+  }
+
   /** Welche Aufgaben stehen zur Bewertung? Alles Bestätigte. */
   function reviewable(exceptPid) {
     const out = [];
@@ -3435,6 +3602,8 @@ window.SS = (function () {
     dealTasks, act, actAs, applyAction, applyActionRaw: applyAction,
     // Wertung
     startReview, reviewOf, rate, setVoid, clearFlags, reviewable,
+    // Abend beenden
+    endEvening, reopenEvening, summary, buildSummary,
     // Chat
     sendChat, receiveChat,
     sync, net, persist, setRenderCurrent, renderCurrent,
@@ -3472,9 +3641,11 @@ window.SS = (function () {
     { id: "kuessen", name: "Küssen", glyph: "😘", level: 1, hint: "Bussi auf Wange oder Stirn. Nur wenn alle einverstanden sind." },
     { id: "trick", name: "Trick", glyph: "🎩", level: 1, hint: "Kunststück, Zungenbrecher, Geschicklichkeit." },
     { id: "tanzen", name: "Tanzen", glyph: "🕺", level: 1, hint: "Bewegen, tanzen, hinstellen." },
-    { id: "singen", name: "Singen", glyph: "🎤", level: 2, hint: "Laut und schief." },
+    { id: "nachmachen", name: "Nachmachen", glyph: "🎭", level: 1, hint: "Jemanden nachahmen — harmlos und meistens zum Lachen." },
     { id: "reden", name: "Reden", glyph: "💬", level: 1, hint: "Gespräch anfangen oder halten." },
     { id: "foto", name: "Foto & Pose", glyph: "📸", level: 1, hint: "Ein Bild stellen." },
+    { id: "singen", name: "Singen", glyph: "🎤", level: 2, hint: "Laut und schief." },
+    { id: "wetten", name: "Wetten", glyph: "🎲", level: 2, hint: "Zwei gegen zwei — der Verlierer zahlt." },
     { id: "kontakt", name: "Kontakt", glyph: "🤝", level: 2, hint: "Leute ansprechen, die man nicht kennt." },
     { id: "mutprobe", name: "Mutprobe", glyph: "🔥", level: 2, hint: "Überwindung — aber harmlos." },
     { id: "quatsch", name: "Quatsch", glyph: "🤪", level: 2, hint: "Blödsinn mit Ansage." },
@@ -3503,27 +3674,27 @@ window.SS = (function () {
   const TASKS = [
     /* ══ Anstoßen ═════════════════════════════════════════════════════════ */
     { id: "as1", type: "anstossen", level: 1, text: "Stoß mit {ziel} an und schau dabei tief in die Augen. Foto!" },
-    { id: "as2", type: "anstossen", level: 1, text: "Such {ziel}, stoß an und sag laut «Auf uns, die Deppen vom Dienst»." },
-    { id: "as3", type: "anstossen", level: 1, text: "Stoß mit {ziel} an, ohne dabei zu grinsen. Wenn du grinst, nochmal." },
+    { id: "as2", type: "anstossen", level: 1, text: "Such {ziel}, stoß an und sag laut «Auf uns, die Deppen vom Dienst». Foto!" },
+    { id: "as3", type: "anstossen", level: 1, text: "Stoß mit {ziel} an, ohne dabei zu grinsen. Wenn du grinst, nochmal. Foto!" },
     { id: "as4", type: "anstossen", level: 1, text: "Stoß mit {ziel} an und behaupte laut, ihr seid verwandt. Foto!" },
-    { id: "as5", type: "anstossen", level: 1, text: "Stoß mit {ziel} an — aber jeder mit dem Glas des anderen." },
+    { id: "as5", type: "anstossen", level: 1, text: "Stoß mit {ziel} an — aber jeder mit dem Glas des anderen. Foto!" },
     { id: "as6", type: "anstossen", level: 1, text: "Geh zu {ziel} und stoß an, während du auf einem Bein stehst. Foto!" },
-    { id: "as7", type: "anstossen", level: 1, text: "Lass dir von {ziel} das Glas halten und stoß mit einem Dritten an. Wer war's?" },
-    { id: "as8", type: "anstossen", level: 1, text: "Stoß mit {ziel} an und trink dabei gleichzeitig aus dem Glas des anderen." },
-    { id: "as9", type: "anstossen", level: 2, text: "Stoß mit {ziel} an, sag drei Komplimente hintereinander und trink nach jedem." },
-    { id: "as10", type: "anstossen", level: 2, text: "Lass {ziel} entscheiden, wie oft ihr anstößt. Jedes Mal wird getrunken." },
+    { id: "as7", type: "anstossen", level: 1, text: "Lass dir von {ziel} das Glas halten und stoß mit einem Dritten an. Wer war's?. Foto!" },
+    { id: "as8", type: "anstossen", level: 1, text: "Stoß mit {ziel} an und trink dabei gleichzeitig aus dem Glas des anderen. Foto!" },
+    { id: "as9", type: "anstossen", level: 2, text: "Stoß mit {ziel} an, sag drei Komplimente hintereinander und trink nach jedem. Foto!" },
+    { id: "as10", type: "anstossen", level: 2, text: "Lass {ziel} entscheiden, wie oft ihr anstößt. Jedes Mal wird getrunken. Foto!" },
     { id: "as11", type: "anstossen", level: 3, text: "Stoß mit {ziel} an und lass {ziel} bestimmen, wie viel du trinkst. Foto!" },
     { id: "as12", type: "anstossen", level: 3, text: "Stoß mit {ziel} an und trink aus jedem Glas in Reichweite einen Schluck. Foto!" },
 
     /* ══ Küssen ═══════════════════════════════════════════════════════════ */
     { id: "ku1", type: "kuessen", level: 1, text: "Gib {ziel} ein Bussi auf die Wange. Foto als Beweis." },
-    { id: "ku2", type: "kuessen", level: 1, text: "Gib {ziel} einen Kuss auf die Stirn und sag dabei etwas Nettes." },
+    { id: "ku2", type: "kuessen", level: 1, text: "Gib {ziel} einen Kuss auf die Stirn und sag dabei etwas Nettes. Foto!" },
     { id: "ku3", type: "kuessen", level: 1, text: "Mach mit {ziel} ein Foto, auf dem ihr euch Wangenküsschen gebt." },
     { id: "ku4", type: "kuessen", level: 1, text: "Frag {ziel}, wo er geküsst werden möchte, und tu es dort — Wange oder Stirn. Foto!" },
     { id: "ku5", type: "kuessen", level: 1, text: "Gib {ziel} einen Handkuss und verneige dich dabei. Foto!" },
     { id: "ku6", type: "kuessen", level: 2, text: "Gib {ziel} einen Kuss auf die Wange und lass dir einen zurückgeben. Foto!" },
-    { id: "ku7", type: "kuessen", level: 2, text: "Küss {ziel} auf die Stirn und flüster dabei ein Geheimnis." },
-    { id: "ku8", type: "kuessen", level: 2, text: "Mach mit {ziel} ein Foto wie bei einem Filmkuss — ohne dass sich die Lippen berühren." },
+    { id: "ku7", type: "kuessen", level: 2, text: "Küss {ziel} auf die Stirn und flüster dabei ein Geheimnis. Foto!" },
+    { id: "ku8", type: "kuessen", level: 2, text: "Stell mit {ziel} einen Kuss nach, ohne dass sich die Lippen berühren. Foto!" },
     { id: "ku9", type: "kuessen", level: 3, text: "Küss {ziel} auf den Hals. Nur wenn {ziel} ausdrücklich Ja sagt. Foto!" },
     { id: "ku10", type: "kuessen", level: 3, text: "Lass {ziel} entscheiden, wohin der Kuss geht — Wange, Stirn oder Hals. Foto!" },
 
@@ -3543,19 +3714,19 @@ window.SS = (function () {
     /* ══ Tanzen ═══════════════════════════════════════════════════════════ */
     { id: "ta1", type: "tanzen", level: 1, text: "Bring {ziel} dazu, mit dir eine Minute zu tanzen. Foto beim Tanzen." },
     { id: "ta2", type: "tanzen", level: 1, text: "Tanz mit {ziel} zehn Sekunden wie bei der Kirchweih. Foto!" },
-    { id: "ta3", type: "tanzen", level: 1, text: "Geh mit {ziel} eine Runde durch den Raum, ohne den Boden zu berühren, wenn er's tut." },
+    { id: "ta3", type: "tanzen", level: 1, text: "Geh mit {ziel} eine Runde durch den Raum, ohne den Boden zu berühren, wenn er's tut. Foto!" },
     { id: "ta4", type: "tanzen", level: 1, text: "Mach mit {ziel} ein Standbild wie bei einem Pokalfoto. Foto!" },
     { id: "ta5", type: "tanzen", level: 1, text: "Trag {ziel} auf dem Rücken drei Schritte weit. Foto!" },
     { id: "ta6", type: "tanzen", level: 1, text: "Stell dich mit {ziel} Rücken an Rücken und schaut, wer größer ist. Foto!" },
     { id: "ta7", type: "tanzen", level: 2, text: "Lass {ziel} eine Bewegung vorgeben und mach sie nach, bis er aufhört. Foto!" },
     { id: "ta8", type: "tanzen", level: 2, text: "Übernimm eine Minute die Musik und bring die Runde zum Tanzen. Foto!" },
-    { id: "ta9", type: "tanzen", level: 2, text: "Tanz auf einem Stuhl, ohne runterzufallen. {ziel} filmt es. Foto!" },
+    { id: "ta9", type: "tanzen", level: 2, text: "Tanz auf einem Stuhl, ohne runterzufallen. {ziel} macht das Foto." },
     { id: "ta10", type: "tanzen", level: 3, text: "Tanz mit {ziel} {zahl} Sekunden eng umschlungen. Foto!" },
     { id: "ta11", type: "tanzen", level: 3, text: "Bring drei Leut dazu, mit dir gleichzeitig zu tanzen. Foto!" },
 
     /* ══ Singen ═══════════════════════════════════════════════════════════ */
     { id: "si1", type: "singen", level: 2, text: "Sing {ziel} ein Ständchen. Laut. Foto als Beweis." },
-    { id: "si2", type: "singen", level: 2, text: "Sing mit {ziel} im Duett ein Wirtshauslied, das {ziel} aussucht." },
+    { id: "si2", type: "singen", level: 2, text: "Sing mit {ziel} im Duett ein Wirtshauslied, das {ziel} aussucht. Foto!" },
     { id: "si3", type: "singen", level: 2, text: "Sing dem Wirt ein Lied vor. Der Wirt macht das Foto." },
     { id: "si4", type: "singen", level: 2, text: "Sing einen Schlager falsch und lass {ziel} raten, welcher es war. Foto!" },
     { id: "si5", type: "singen", level: 2, text: "Bring {ziel} dazu, mit dir den Refrain zu brüllen. Foto!" },
@@ -3563,16 +3734,16 @@ window.SS = (function () {
     { id: "si7", type: "singen", level: 3, text: "Stell dich auf einen Tisch und sing die ganze Strophe. Foto!" },
 
     /* ══ Reden ════════════════════════════════════════════════════════════ */
-    { id: "re1", type: "reden", level: 1, text: "Führ mit {ziel} ein Gespräch über ein Thema, das {ziel} aussucht. Eine Minute." },
-    { id: "re2", type: "reden", level: 1, text: "Erzähl {ziel} von deinem peinlichsten Moment. Es muss genickt und «kenn i» gesagt werden." },
-    { id: "re3", type: "reden", level: 1, text: "Lob {ziel} dreißig Sekunden lang, ohne dass es gelogen klingt." },
-    { id: "re4", type: "reden", level: 1, text: "Frag {ziel} nach einem Geheimnis, das noch nie erzählt wurde." },
-    { id: "re5", type: "reden", level: 1, text: "Führ mit {ziel} ein Gespräch, in dem jeder Satz mit «Des is a Frechheit» endet." },
-    { id: "re6", type: "reden", level: 1, text: "Erzähl {ziel} die Handlung deines Lieblingsfilms — als wär's im Wirtshaus passiert." },
+    { id: "re1", type: "reden", level: 1, text: "Führ mit {ziel} ein Gespräch über ein Thema, das {ziel} aussucht. Eine Minute. Foto!" },
+    { id: "re2", type: "reden", level: 1, text: "Erzähl {ziel} von deinem peinlichsten Moment. Es muss genickt und «kenn i» gesagt werden. Foto!" },
+    { id: "re3", type: "reden", level: 1, text: "Lob {ziel} dreißig Sekunden lang, ohne dass es gelogen klingt. Foto!" },
+    { id: "re4", type: "reden", level: 1, text: "Frag {ziel} nach einem Geheimnis, das noch nie erzählt wurde. Foto!" },
+    { id: "re5", type: "reden", level: 1, text: "Führ mit {ziel} ein Gespräch, in dem jeder Satz mit «Des is a Frechheit» endet. Foto!" },
+    { id: "re6", type: "reden", level: 1, text: "Erzähl {ziel} die Handlung deines Lieblingsfilms nach — als wär's im Wirtshaus passiert. Foto!" },
     { id: "re7", type: "reden", level: 1, text: "Red mit {ziel} nur in Fragen. Wer eine Antwort gibt, hat verloren. Foto!" },
-    { id: "re8", type: "reden", level: 2, text: "Überzeuge {ziel} in einer Minute, dass er dir sein Getränk geben soll." },
+    { id: "re8", type: "reden", level: 2, text: "Überzeuge {ziel} in einer Minute, dass er dir sein Getränk geben soll. Foto!" },
     { id: "re9", type: "reden", level: 2, text: "Sag {ziel} drei Dinge, die du noch niemandem gesagt hast. Foto!" },
-    { id: "re10", type: "reden", level: 2, text: "Erzähl {ziel} laut, was du über ihn denkst — nur Nettes, aber ehrlich." },
+    { id: "re10", type: "reden", level: 2, text: "Erzähl {ziel} laut, was du über ihn denkst — nur Nettes, aber ehrlich. Foto!" },
     { id: "re11", type: "reden", level: 3, text: "Erzähl der Runde eine Geschichte, in der {ziel} vorkommt, und {ziel} muss mitspielen. Foto!" },
     { id: "re12", type: "reden", level: 3, text: "Beichte {ziel} etwas, das du noch nie zugegeben hast. Foto als Beweis." },
 
@@ -3600,8 +3771,8 @@ window.SS = (function () {
 
     /* ══ Mutprobe ═════════════════════════════════════════════════════════ */
     { id: "mu1", type: "mutprobe", level: 2, text: "Halt eine einminütige Rede auf {ziel}. Alle müssen zuhören. Foto!" },
-    { id: "mu2", type: "mutprobe", level: 2, text: "Sag {ziel} drei Komplimente, die du noch niemandem gesagt hast." },
-    { id: "mu3", type: "mutprobe", level: 2, text: "Erzähl der ganzen Runde laut, was {ziel} vor fünf Minuten gemacht hat." },
+    { id: "mu2", type: "mutprobe", level: 2, text: "Sag {ziel} drei Komplimente, die du noch niemandem gesagt hast. Foto!" },
+    { id: "mu3", type: "mutprobe", level: 2, text: "Erzähl der ganzen Runde laut, was {ziel} vor fünf Minuten gemacht hat. Foto!" },
     { id: "mu4", type: "mutprobe", level: 2, text: "Frag den Wirt nach einem Gratisgetränk. Foto beim Fragen." },
     { id: "mu5", type: "mutprobe", level: 2, text: "Übernimm eine Minute die Musik und such etwas, zu dem alle tanzen sollen. Foto!" },
     { id: "mu6", type: "mutprobe", level: 2, text: "Lass dir von der ganzen Runde ein Kompliment geben und bedank dich bei jedem. Foto!" },
@@ -3610,7 +3781,7 @@ window.SS = (function () {
 
     /* ══ Quatsch ══════════════════════════════════════════════════════════ */
     { id: "qu1", type: "quatsch", level: 2, text: "Sprich {zahl} Minuten lang nur im Dialekt mit {ziel}. Foto als Beweis." },
-    { id: "qu2", type: "quatsch", level: 2, text: "Erfinde einen Spitznamen für {ziel} und benutz ihn bis zum Ende des Abends." },
+    { id: "qu2", type: "quatsch", level: 2, text: "Erfinde einen Spitznamen für {ziel} und benutz ihn bis zum Ende des Abends. Foto!" },
     { id: "qu3", type: "quatsch", level: 2, text: "Mach mit {ziel} einen Handschlag aus, an den man sich morgen erinnert. Foto!" },
     { id: "qu4", type: "quatsch", level: 2, text: "Flüster {ziel} etwas ins Ohr, das alle anderen hören können. Foto!" },
     { id: "qu5", type: "quatsch", level: 2, text: "Nenn {ziel} für den Rest des Abends «Herr Wachtmeister». Foto als Beweis." },
@@ -3632,6 +3803,64 @@ window.SS = (function () {
     { id: "kt8", type: "kotzen", level: 3, text: "Trink einen Schluck aus jedem Glas am Tisch. Foto als Beweis." },
     { id: "kt9", type: "kotzen", level: 3, text: "Mach ein Foto, als hättest du dich gerade übergeben — mit vollem Theater. Foto!" },
 
+    /* ══ Nachmachen ═══════════════════════════════════════════════════════ */
+    { id: "na1", type: "nachmachen", level: 1, text: "Mach {ziel} nach, wie er lacht. {ziel} bestätigt, ob's stimmt. Foto!" },
+    { id: "na2", type: "nachmachen", level: 1, text: "Imitation: Stell {ziel} so dar, wie er beim ersten Bier ausschaut. Foto!" },
+    { id: "na3", type: "nachmachen", level: 1, text: "Mach die typische Bewegung von {ziel} nach und lass die Runde raten. Foto!" },
+    { id: "na4", type: "nachmachen", level: 1, text: "Sprich {zahl} Sätze lang genau wie {ziel}. Foto als Beweis." },
+    { id: "na5", type: "nachmachen", level: 1, text: "Mach einen Wirt nach, der gerade die Rechnung bringt. Foto!" },
+    { id: "na6", type: "nachmachen", level: 1, text: "Stell pantomimisch dar, was {ziel} heute Abend am liebsten macht. Foto!" },
+    { id: "na7", type: "nachmachen", level: 1, text: "Mach {ziel} so nach, wie er läuft. Die Runde muss es erkennen. Foto!" },
+    { id: "na8", type: "nachmachen", level: 1, text: "Imitation: Stell dich hin wie {ziel}, wenn er eine Geschichte erzählt. Foto!" },
+    { id: "na9", type: "nachmachen", level: 2, text: "Mach die ganze Runde nach — einer nach dem anderen. Foto als Beweis." },
+    { id: "na10", type: "nachmachen", level: 2, text: "Lass {ziel} dir eine Person nennen und mach sie nach, bis er lacht. Foto!" },
+    { id: "na11", type: "nachmachen", level: 2, text: "Stell pantomimisch den Abend bisher dar. {ziel} muss alles erkennen. Foto!" },
+    { id: "na12", type: "nachmachen", level: 3, text: "Mach {ziel} nach, aber übertrieben — und {ziel} muss daneben stehen. Foto!" },
+
+    /* ══ Wetten ═══════════════════════════════════════════════════════════ */
+    { id: "we1", type: "wetten", level: 2, text: "Wett mit {ziel}, wer länger ohne Lachen auskommt. Der Verlierer zahlt die nächste Runde. Foto!" },
+    { id: "we2", type: "wetten", level: 2, text: "Wett mit {ziel}, wer sein Glas zuerst leer hat. Foto vom Sieger!" },
+    { id: "we3", type: "wetten", level: 2, text: "Wett mit {ziel}: Wer errät das Getränk des anderen blind? Foto!" },
+    { id: "we4", type: "wetten", level: 2, text: "Wett mit {ziel}, wer mehr Bierfilz auf einmal stapeln kann. Foto vom Turm!" },
+    { id: "we5", type: "wetten", level: 2, text: "Wett mit {ziel} um die längste Stehzeit auf einem Bein. {zahl} Leute schauen zu. Foto!" },
+    { id: "we6", type: "wetten", level: 2, text: "Wett mit {ziel}, wer den Zungenbrecher fehlerfrei schafft. Foto!" },
+    { id: "we7", type: "wetten", level: 2, text: "Wett mit {ziel}, wer beim Armdrücken gewinnt. Foto!" },
+    { id: "we8", type: "wetten", level: 2, text: "Wett mit {ziel}, wer drei Leute schneller zum Lachen bringt. Foto!" },
+    { id: "we9", type: "wetten", level: 3, text: "Wett mit {ziel}, wer die nächste Runde zahlt — Verlierer trinkt zusätzlich aus. Foto!" },
+    { id: "we10", type: "wetten", level: 3, text: "Wett mit {ziel}, wer lauter «Seidla» rufen kann. Foto!" },
+
+    /* ══ Zweite Runde: noch mehr Vielfalt ═════════════════════════════════ */
+    { id: "as13", type: "anstossen", level: 1, text: "Stoß mit {ziel} an und erzähl dabei einen Trinkspruch, den du selbst erfunden hast. Foto!" },
+    { id: "as14", type: "anstossen", level: 1, text: "Stoß mit {ziel} an und lass ihn raten, wie alt du bist. Foto!" },
+    { id: "as15", type: "anstossen", level: 2, text: "Stoß mit {ziel} an, und zwar {zahl} Mal hintereinander. Foto!" },
+    { id: "ku11", type: "kuessen", level: 1, text: "Gib {ziel} ein Bussi auf die Wange und sag dabei «des is für die nächsten zehn Jahre». Foto!" },
+    { id: "ku12", type: "kuessen", level: 2, text: "Lass {ziel} dir einen Handkuss geben und bedank dich mit einer tiefen Verbeugung. Foto!" },
+    { id: "tr12", type: "trick", level: 1, text: "Erzähl {ziel} einen Witz, bei dem er mindestens zweimal lacht. Foto!" },
+    { id: "tr13", type: "trick", level: 1, text: "Zerbrich dir die Zunge an drei Zungenbrechern hintereinander. {ziel} zählt die Fehler. Foto!" },
+    { id: "tr14", type: "trick", level: 2, text: "Balancier einen Bierfilz auf dem Ellenbogen und fang ihn mit derselben Hand. Foto!" },
+    { id: "ta12", type: "tanzen", level: 1, text: "Lass {ziel} eine Tanzfigur vorgeben und mach sie nach. Foto!" },
+    { id: "ta13", type: "tanzen", level: 2, text: "Tanz mit {ziel} einen Walzer, egal ob Musik läuft. Foto!" },
+    { id: "na13", type: "nachmachen", level: 1, text: "Mach {ziel} nach, wie er sich hinsetzt. Foto!" },
+    { id: "na14", type: "nachmachen", level: 2, text: "Mach den Wirt nach, wie er die Bestellung aufnimmt. Der Wirt schaut zu. Foto!" },
+    { id: "we11", type: "wetten", level: 2, text: "Wett mit {ziel}, wer die längere Zeit die Luft anhalten kann. Foto!" },
+    { id: "we12", type: "wetten", level: 3, text: "Wett mit {ziel}, wer die meisten Leute in einer Minute zum Anstoßen bringt. Foto!" },
+    { id: "si8", type: "singen", level: 2, text: "Sing {ziel} ein Lied vor, das nur aus seinem Namen besteht. Foto!" },
+    { id: "si9", type: "singen", level: 2, text: "Bring die Runde dazu, mit dir gemeinsam ein Lied zu singen. Foto!" },
+    { id: "re13", type: "reden", level: 1, text: "Erzähl {ziel} etwas, das du heute gelernt hast. Foto!" },
+    { id: "re14", type: "reden", level: 2, text: "Red mit {ziel} eine Minute lang über ein Thema, von dem du nichts verstehst. Foto!" },
+    { id: "re15", type: "reden", level: 2, text: "Überzeuge {ziel}, dass dein Lieblingsgetränk das beste im Haus ist. Foto!" },
+    { id: "fo11", type: "foto", level: 1, text: "Mach mit {ziel} ein Foto, als wärt ihr im Urlaub. Foto!" },
+    { id: "fo12", type: "foto", level: 1, text: "Mach ein Foto von {ziel}, auf dem er überrascht ausschaut. Foto!" },
+    { id: "fo13", type: "foto", level: 2, text: "Stell dich mit {ziel} in eine Reihe mit drei anderen und mach ein Gruppenfoto. Foto!" },
+    { id: "ko9", type: "kontakt", level: 2, text: "Frag jemanden Fremden nach dem Weg zur Toilette und bedank dich überschwänglich. Foto!" },
+    { id: "ko10", type: "kontakt", level: 2, text: "Bring jemanden Fremden dazu, mit dir anzustoßen. Foto!" },
+    { id: "mu9", type: "mutprobe", level: 2, text: "Stell dich mitten in den Raum und ruf laut «Prost, ihr Deppen!». Foto!" },
+    { id: "mu10", type: "mutprobe", level: 3, text: "Halt eine Laudatio auf {ziel}, als hättest du zu viel getrunken. Foto!" },
+    { id: "qu10", type: "quatsch", level: 2, text: "Sprich {zahl} Minuten lang mit einem erfundenen Akzent. Foto!" },
+    { id: "qu11", type: "quatsch", level: 2, text: "Erfinde für drei Leute neue Namen und benutz sie bis zum Ende. Foto!" },
+    { id: "kt10", type: "kotzen", level: 3, text: "Lass dir von {ziel} ein Getränk mit drei Zutaten mischen und nimm einen Schluck. Foto beim Gesicht!" },
+    { id: "kt11", type: "kotzen", level: 3, text: "Iss etwas, das {ziel} ausgesucht hat, mit verbundenen Augen. Foto!" },
+
     /* ══ Ohne Zielperson (kleine Runden, oder wenn kein Ziel übrig ist) ══ */
     { id: "x1", type: "foto", level: 1, text: "Mach ein Foto von deinem Getränk an einem Ort, wo es nicht hingehört." },
     { id: "x2", type: "tanzen", level: 1, text: "Stell dich auf etwas, das kein Stuhl ist, und lass dich fotografieren." },
@@ -3641,6 +3870,23 @@ window.SS = (function () {
     { id: "x6", type: "trick", level: 1, text: "Wirf einen Bierfilz von der Schulter und fang ihn hinter dem Rücken. Foto!" },
     { id: "x7", type: "quatsch", level: 2, text: "Sitz fünf Minuten auf dem Boden statt auf dem Stuhl. Foto!" },
     { id: "x8", type: "mutprobe", level: 2, text: "Bestell beim Wirt etwas, das nicht auf der Karte steht. Foto!" },
+    { id: "x9", type: "foto", level: 1, text: "Mach ein Foto von dir, wie du auf etwas Ungewöhnlichem sitzt. Foto!" },
+    { id: "x10", type: "trick", level: 1, text: "Bau aus {zahl} Bierfilz einen Turm, der stehen bleibt. Foto!" },
+    { id: "x11", type: "reden", level: 1, text: "Halte eine Minute lang ein Gespräch nur mit Fragen. Foto als Beweis." },
+    { id: "x12", type: "nachmachen", level: 1, text: "Stell pantomimisch dar, wie du heute aufgestanden bist. Foto!" },
+    { id: "x13", type: "tanzen", level: 1, text: "Tanz {zahl} Sekunden lang ohne Musik. Foto!" },
+    { id: "x14", type: "foto", level: 1, text: "Finde den ungewöhnlichsten Gegenstand im Raum und mach ein Foto damit." },
+    { id: "x15", type: "trick", level: 2, text: "Balancier ein Glas {zahl} Sekunden auf der Stirn. Foto!" },
+    { id: "x16", type: "quatsch", level: 2, text: "Sprich bis zum Ende des Abends jeden mit «du» an — auch den Wirt. Foto!" },
+    { id: "x17", type: "mutprobe", level: 2, text: "Halte eine Rede auf dich selbst, als hättest du einen Preis gewonnen. Foto!" },
+    { id: "x18", type: "wetten", level: 2, text: "Wett mit der Runde, dass du dein Glas in einem Zug leerst. Foto!" },
+    { id: "x19", type: "foto", level: 1, text: "Mach ein Foto aus einer Perspektive, die niemand erwartet. Foto!" },
+    { id: "x20", type: "trick", level: 1, text: "Zerbrich dir die Zunge an einem Zungenbrecher, den {zahl} Leute dir vorsagen. Foto!" },
+    { id: "x21", type: "nachmachen", level: 2, text: "Stell pantomimisch einen Kellner dar, der drei volle Gläser trägt. Foto!" },
+    { id: "x22", type: "reden", level: 1, text: "Erzähl der Runde von deinem besten Abend. Foto!" },
+    { id: "x23", type: "quatsch", level: 2, text: "Erfinde einen neuen Trinkspruch und bring ihn der Runde bei. Foto!" },
+    { id: "x24", type: "foto", level: 1, text: "Mach ein Foto von deinem Schatten an der Wand. Foto!" },
+    { id: "x25", type: "tanzen", level: 2, text: "Bring {zahl} Leute dazu, gleichzeitig eine Polonaise zu bilden. Foto!" },
   ];
 
   /* ── Aufgaben, die zwingend eine andere Person brauchen ──────────────────
@@ -4310,6 +4556,7 @@ window.SS = (function () {
       mode: state.mode,
       role: state.role,
       phase: state.phase,
+      endedAt: state.endedAt || null,
       seed: state.seed,
       modeId: state.settings && state.settings.modeId,
       ring: state.ring,
@@ -4324,7 +4571,7 @@ window.SS = (function () {
   }
   function saveSession(state) {
     if (!state || (!state.seed && !state.code)) return;
-    if (state.phase !== "running" && state.phase !== "over") return;
+    if (state.phase === "lobby") return;
     put("session", snapshot(state));
   }
   function loadSession() { return get("session", null); }
@@ -4780,6 +5027,7 @@ window.SS = (function () {
       players: SS.state.players,
       hostId: SS.state.hostId,
       phase: SS.state.phase,
+      endedAt: SS.state.endedAt || null,
       groupName: SS.state.groupName,
       seed: SS.state.seed,
       ring: SS.state.ring,
@@ -4883,7 +5131,10 @@ window.SS = (function () {
       }
       case "closed": {
         SS.state.phase = "over";
-        SS.toast("Der Wirt hat den Abend abgeschlossen.", "ok");
+        if (msg.endedAt) SS.state.endedAt = msg.endedAt;
+        SS.toast("Der Wirt hat den Abend beendet.", "ok");
+        // Direkt zum Endstand — dort steht das Ergebnis für alle.
+        if (SS.ui && SS.state.route !== "end") SS.ui.go("end");
         SS.emit("net");
         break;
       }
@@ -5018,12 +5269,15 @@ window.SS = (function () {
 
   function applyState(s) {
     if (!s) return;
-    ["players", "hostId", "phase", "groupName", "seed", "ring",
+    ["players", "hostId", "phase", "endedAt", "groupName", "seed", "ring",
       "sidequests", "proposals", "settings", "reviews"].forEach((k) => {
       if (s[k] !== undefined) SS.state[k] = s[k];
     });
     if (s.assignments) SS.state.assignments = mergeAssignments(s.assignments);
     if (Array.isArray(s.log) && s.log.length) SS.state.log = s.log;
+    // Der Gast muss den empfangenen Stand auch behalten. Ohne das war nach
+    // einem Neustart der alte Stand wieder da — der Endstand verschwand.
+    if (SS.persist) SS.persist();
   }
 
   /**
@@ -5185,7 +5439,9 @@ window.SS = (function () {
   }
 
   /* ── Gruppe betreten (Gast) ───────────────────────────────────────────── */
-  function joinGroup(code, guestName) {
+  function joinGroup(code, guestName, opts) {
+    opts = opts || {};
+    const step = (s) => { if (typeof opts.onStep === "function") { try { opts.onStep(s); } catch (e) {} } };
     return new Promise((resolve, reject) => {
       if (!ensureLib()) return reject(new Error("Netzwerk-Bibliothek konnte nicht geladen werden."));
       code = String(code || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -5218,11 +5474,13 @@ window.SS = (function () {
       }, 22000);
 
       peer.on("open", () => {
+        step("broker");
         const conn = peer.connect(peerIdFor(code), { reliable: true, serialization: "json" });
         hostConn = conn;
         attachConn(conn, { isHost: true });
 
         conn.on("open", () => {
+          step("host");
           settled = true;
           clearTimeout(giveUpAfter);
           SS.state.mode = "online";
@@ -5402,8 +5660,11 @@ window.SS = (function () {
     ]);
     const right = el("div", { class: "top-right" }, [
       el("span", { class: "net-badge", id: "netBadge", text: s.connection === "online" ? "Verbunden" : "Am Gerät" }),
-      s.phase !== "lobby" ? btn("Aufgaben", { kind: "ghost", cls: "tiny", onClick: () => go("tasks") }) : null,
-      s.phase !== "lobby" && s.settings.review ? btn("Wertung", { kind: "ghost", cls: "tiny", onClick: () => go("review") }) : null,
+      s.phase === "over"
+        ? btn("Endstand", { kind: "ghost", cls: "tiny", onClick: () => go("end") })
+        : null,
+      s.phase !== "lobby" && s.phase !== "over" ? btn("Aufgaben", { kind: "ghost", cls: "tiny", onClick: () => go("tasks") }) : null,
+      s.phase !== "lobby" && s.phase !== "over" && s.settings.review ? btn("Wertung", { kind: "ghost", cls: "tiny", onClick: () => go("review") }) : null,
       s.phase !== "lobby" ? btn("Album", { kind: "ghost", cls: "tiny", onClick: () => go("album") }) : null,
       s.settings.chat !== false ? btn("Chat", { kind: "ghost", cls: "tiny", id: "chatBtn", onClick: () => go("chat") }) : null,
       s.phase !== "lobby" && SS.isHost() ? btn("Wirt", { kind: "ghost", cls: "tiny", id: "wirtBtn", onClick: openWirtPanel }) : null,
@@ -5504,29 +5765,84 @@ window.SS = (function () {
     const nameIn = el("input", { type: "text", value: prof.name || "", placeholder: "Dein Name", maxlength: 22 });
     const codeIn = el("input", { type: "text", value: (prefill || SS.state.code || ""), placeholder: "z. B. K7QP", maxlength: 4, class: "code-input" });
     codeIn.style.textTransform = "uppercase";
+    // Der Code darf direkt aus der Zwischenablage kommen — am Handy tippt
+    // sich ein vierstelliger Code sonst schlecht.
+    codeIn.addEventListener("paste", (e) => {
+      const t = (e.clipboardData || window.clipboardData).getData("text") || "";
+      const m = t.match(/[A-Za-z0-9]{4}/);
+      if (m) { e.preventDefault(); codeIn.value = m[0].toUpperCase(); }
+    });
     const netOk = SS.net.available();
+
+    // Rückmeldung im Dialog selbst. Wichtig: Der Dialog bleibt offen, bis die
+    // Anmeldung wirklich durch ist. Vorher verschwand er und man stand ohne
+    // Erklärung auf der Lobby — als hätte es nicht geklappt.
+    const status = el("p", { class: "join-status", hidden: true });
+
     const body = el("div", {}, [
       field("Dein Name", nameIn),
       field("Rundencode", codeIn),
       el("p", { class: "muted small", text: netOk
         ? "Der Code steht beim Wirt — oder du scannst dort den QR-Code."
         : "Gerade ist kein Verbindungsdienst erreichbar. Du kannst trotzdem am selben Gerät mitspielen — dann wandert das Handy." }),
+      status,
     ]);
+
+    const joinBtn = el("button", { class: "btn btn-gold", text: netOk ? "Beitreten" : "Am Gerät mitspielen" });
+
+    function say(text, kind) {
+      status.hidden = false;
+      status.className = "join-status " + (kind || "");
+      status.innerHTML = "";
+      status.appendChild(el("span", { class: "spin" }));
+      status.appendChild(el("span", { text: text }));
+    }
+
+    function idle() {
+      joinBtn.disabled = false;
+      joinBtn.textContent = netOk ? "Beitreten" : "Am Gerät mitspielen";
+    }
+
+    joinBtn.addEventListener("click", () => {
+      const nm = nameIn.value.trim();
+      if (!nm) { SS.toast("Wie heißt du?", "err"); nameIn.focus(); return; }
+      SS.store.saveProfile({ name: nm, seen: true });
+
+      if (!netOk) { SS.closeModal(); joinLocal(nm); return; }
+
+      const code = codeIn.value.trim().toUpperCase();
+      if (code.length !== 4) { SS.toast("Der Code hat vier Zeichen.", "err"); codeIn.focus(); return; }
+
+      // Dialog bleibt offen, Knopf sperrt, Fortschritt läuft.
+      joinBtn.disabled = true;
+      joinBtn.textContent = "Verbinde …";
+      say("Suche Runde " + code + " …");
+
+      SS.net.joinGroup(code, nm, {
+        onStep: (step) => {
+          if (step === "broker") say("Verbindungsdienst gefunden. Suche den Wirt …");
+          if (step === "host") say("Wirt gefunden. Warte auf die Aufnahme …");
+        },
+      }).then(() => {
+        say("Dabei! Deine Aufgaben kommen gleich.", "ok");
+        setTimeout(() => {
+          SS.closeModal();
+          SS.toast("Du bist dabei!", "ok");
+          go(SS.state.phase === "running" ? "tasks" : SS.state.phase === "over" ? "end" : "lobby");
+        }, 450);
+      }).catch((e) => {
+        idle();
+        say(e.message, "err");
+        SS.toast(e.message, "err");
+      });
+    });
+
     SS.modal("Beitreten", body, [
       { label: "Abbrechen" },
-      {
-        label: netOk ? "Beitreten" : "Am Gerät mitspielen", kind: "primary", onClick: () => {
-          const nm = nameIn.value.trim();
-          if (!nm) { SS.toast("Wie heißt du?", "err"); return false; }
-          SS.store.saveProfile({ name: nm, seen: true });
-          if (!netOk) { joinLocal(nm); return; }
-          const code = codeIn.value.trim().toUpperCase();
-          if (code.length !== 4) { SS.toast("Der Code hat vier Zeichen.", "err"); return false; }
-          joinOnline(code, nm);
-          return false;
-        },
-      },
+      { label: "Beitreten", kind: "primary", node: joinBtn },
     ]);
+    if (!nameIn.value) setTimeout(() => nameIn.focus(), 60);
+    else setTimeout(() => codeIn.focus(), 60);
   }
 
   function joinLocal(name) {
@@ -5535,17 +5851,6 @@ window.SS = (function () {
     else SS.addPlayer(name, {});
     SS.toast("Am Gerät dabei. Aufgaben kommen, sobald der Wirt austeilt.", "ok");
     go("lobby");
-  }
-
-  function joinOnline(code, name) {
-    SS.state.mode = "online"; SS.state.code = code; SS.state.role = "guest";
-    SS.toast("Verbinde mit Runde " + code + " …");
-    SS.net.joinGroup(code, name).then(() => {
-      SS.toast("Du bist dabei!", "ok");
-      go(SS.state.phase === "running" ? "tasks" : "lobby");
-    }).catch((e) => {
-      SS.toast(e.message, "err");
-    });
   }
 
   /* ── Lobby ────────────────────────────────────────────────────────────── */
@@ -5586,8 +5891,28 @@ window.SS = (function () {
         el("p", { class: "muted", text: "Der Wirt stellt gerade ein. Sobald er austeilt, stehen deine Aufgaben hier." }),
       ]),
       SS.state.settings.chat !== false ? chatTeaser() : null,
+      activityFeed(),
     ]);
     return el("div", { class: "view view-lobby" }, [topbar(), body, footer()]);
+  }
+
+  /**
+   * Was gerade passiert. Das Protokoll wurde bisher nur gefüllt und nie
+   * gezeigt — dabei ist genau das der Reiz am gemeinsamen Abend.
+   */
+  function activityFeed(limit) {
+    const log = (SS.state.log || []).slice(-(limit || 12)).reverse();
+    if (!log.length) return el("div");
+    return el("section", { class: "panel feed-panel" }, [
+      el("div", { class: "panel-head" }, [
+        el("h2", { text: "Was gerade läuft" }),
+        el("span", { class: "live-dot", title: "läuft" }),
+      ]),
+      el("ul", { class: "feed" }, log.map((l) => el("li", { class: "feed-item " + (l.kind || "") }, [
+        el("span", { class: "feed-at", text: new Date(l.t).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) }),
+        el("span", { class: "feed-text", text: l.text }),
+      ]))),
+    ]);
   }
 
   /** Code groß anzeigen, mit QR-Bild zum Abscannen. */
@@ -5775,6 +6100,7 @@ window.SS = (function () {
       ]));
     }
     body.appendChild(sidequestPanel(mePid));
+    body.appendChild(activityFeed(8));
     return el("div", { class: "view" }, [topbar(), body, footer()]);
   }
 
@@ -6046,17 +6372,15 @@ window.SS = (function () {
 
     const host = SS.isHost();
     body.appendChild(el("div", { class: "row-actions" }, [
-      host && s.phase !== "review" ? btn("Wertung starten", { kind: "primary", onClick: () => { SS.startReview(); go("review"); } }) : null,
-      host && s.phase === "review" ? btn("Wertung beenden", { kind: "primary", onClick: () => {
-        s.phase = "over";
-        SS.logLine("Der Wirt hat die Wertung beendet.", "ok");
-        if (s.mode === "online") SS.net.broadcast({ t: "closed" });
-        SS.sync();
-        SS.toast("Wertung beendet.", "ok");
-        go("album");
+      host && s.phase !== "review" && s.phase !== "over" ? btn("Wertung starten", { kind: "primary", onClick: () => { SS.startReview(); go("review"); } }) : null,
+      host && s.phase === "review" ? btn("Wertung beenden und Abend schließen", { kind: "primary", onClick: () => {
+        if (!confirm("Wertung beenden und den Abend schließen? Danach steht der Endstand fest.")) return;
+        SS.endEvening();
+        SS.toast("Abend beendet.", "ok");
+        go("end");
       } }) : null,
       btn("Album ansehen", { onClick: () => go("album") }),
-      btn("Zurück", { onClick: () => go(s.phase === "lobby" ? "lobby" : "tasks") }),
+      btn("Zurück", { onClick: () => go(s.phase === "lobby" ? "lobby" : s.phase === "over" ? "end" : "tasks") }),
     ]));
     return el("div", { class: "view" }, [topbar(), body, footer()]);
   }
@@ -6190,9 +6514,90 @@ window.SS = (function () {
     }
     body.appendChild(el("div", { class: "row-actions" }, [
       btn("Bericht anzeigen", { kind: "primary", onClick: openReport }),
-      btn("Zurück", { onClick: () => go(SS.state.phase === "lobby" ? "lobby" : "tasks") }),
+      SS.state.phase === "over" ? btn("Zum Endstand", { onClick: () => go("end") }) : null,
+      btn("Zurück", { onClick: () => go(SS.state.phase === "lobby" ? "lobby" : SS.state.phase === "over" ? "end" : "tasks") }),
     ]));
     return el("div", { class: "view" }, [topbar(), body, footer()]);
+  }
+
+  /* ── Ende des Abends ──────────────────────────────────────────────────── */
+  /**
+   * Der Endstand. Er erscheint, sobald der Wirt den Abend beendet — bei allen
+   * gleichzeitig. Damit ist der Abend wirklich zu Ende und nicht bloß ein
+   * Schalter, den niemand sieht.
+   */
+  function viewEnd() {
+    const s = SS.state;
+    const sum = SS.summary();
+    const r = sum.ranking;
+    const host = SS.isHost();
+    const body = el("div", { class: "wrap end-wrap" });
+
+    body.appendChild(el("section", { class: "end-head" }, [
+      el("p", { class: "end-kicker", text: "Der Abend ist zu Ende" }),
+      el("h1", { text: s.groupName || "Wirtshausrunde" }),
+      s.code ? pill("Runde " + s.code, "ghost") : null,
+      sum.endedAt ? el("p", { class: "muted small", text: "Beendet am " + new Date(sum.endedAt).toLocaleString("de-DE") }) : null,
+    ]));
+
+    if (sum.best) {
+      body.appendChild(el("section", { class: "end-winner" }, [
+        avatar(SS.player(sum.best.pid) || { name: sum.best.name, color: sum.best.color }, "big"),
+        el("div", {}, [
+          el("p", { class: "muted small", text: "Sieger des Abends" }),
+          el("h2", { text: sum.best.name }),
+          el("p", { class: "end-points", text: sum.best.points + " Punkte" }),
+        ]),
+      ]));
+    }
+
+    body.appendChild(el("section", { class: "panel" }, [
+      el("div", { class: "stat-row" }, [
+        stat("Dabei", String(sum.players)),
+        stat("Aufgaben", sum.confirmed + " / " + sum.tasks),
+        stat("Nachweise", String(sum.proofs)),
+        stat("Sidequests", String(sum.sidequests)),
+      ]),
+    ]));
+
+    if (r.length) {
+      body.appendChild(el("section", { class: "panel" }, [
+        el("div", { class: "panel-head" }, [el("h2", { text: "Endstand" }), pill(String(r.length) + " Leut", "ghost")]),
+        el("div", { class: "table-scroll" }, [el("table", { class: "rank-table" }, [
+          el("thead", {}, [el("tr", {}, [
+            el("th", { text: "#" }), el("th", { text: "Name" }), el("th", { text: "Punkte" }),
+            el("th", { text: "Aufgaben" }), el("th", { text: "Sidequests" }),
+          ])]),
+          el("tbody", {}, r.map((x, i) => el("tr", { class: i === 0 ? "rank-first" : "" }, [
+            el("td", { text: String(i + 1) }),
+            el("td", {}, [avatar(SS.player(x.pid) || { name: x.name, color: x.color }, "tiny"), el("span", { text: " " + x.name })]),
+            el("td", { text: String(x.points) }),
+            el("td", { text: x.done + " / " + x.total }),
+            el("td", { text: String(x.sidequests || 0) }),
+          ]))),
+        ])]),
+      ]));
+    }
+
+    const acts = el("div", { class: "row-actions" }, [
+      btn("Album ansehen", { kind: "primary", onClick: () => go("album") }),
+      btn("Bericht kopieren", { onClick: () => { copyText(SS.buildSummary()); SS.toast("Endstand kopiert.", "ok"); } }),
+      host ? btn("Abend wieder aufmachen", { onClick: () => {
+        if (!confirm("Den Abend wieder aufmachen? Alle können dann weiterspielen.")) return;
+        SS.reopenEvening();
+        SS.toast("Der Abend läuft wieder.", "ok");
+        go("tasks");
+      } }) : null,
+    ]);
+    body.appendChild(acts);
+
+    const report = SS.buildSummary();
+    body.appendChild(el("details", { class: "end-text" }, [
+      el("summary", { text: "Als Text zum Verschicken" }),
+      el("textarea", { class: "report-text", readonly: true, value: report }),
+    ]));
+
+    return el("div", { class: "view view-end" }, [topbar(), body, footer()]);
   }
 
   /* ── Bericht ──────────────────────────────────────────────────────────── */
@@ -6292,14 +6697,22 @@ window.SS = (function () {
     ]));
     box.appendChild(el("div", { class: "row-actions" }, [
       btn("Aufgaben neu austeilen", { onClick: () => { SS.dealTasks(); SS.toast("Neu ausgeteilt.", "ok"); SS.renderCurrent(); } }),
-      btn("Wertung starten", { kind: "primary", onClick: () => { SS.startReview(); SS.closeModal(); go("review"); } }),
-      btn("Abend abschließen", { onClick: () => {
-        s.phase = "over";
-        SS.logLine("Der Wirt hat den Abend abgeschlossen.", "ok");
-        if (s.mode === "online") SS.net.broadcast({ t: "closed" });
-        SS.sync();
-        SS.toast("Abend abgeschlossen.", "ok");
-      } }),
+      s.phase === "over"
+        ? btn("Abend wieder aufmachen", { onClick: () => {
+            if (!confirm("Den Abend wieder aufmachen? Alle können dann weiterspielen.")) return;
+            SS.reopenEvening(); SS.closeModal(); SS.toast("Der Abend läuft wieder.", "ok"); go("tasks");
+          } })
+        : null,
+      s.phase !== "review" && s.phase !== "over" ? btn("Wertung starten", { kind: "primary", onClick: () => { SS.startReview(); SS.closeModal(); go("review"); } }) : null,
+      s.phase !== "over" ? btn("Abend beenden", { kind: "danger", onClick: () => {
+        const open = Object.values(s.assignments).reduce((n, a) => n + a.filter((t) => !t.confirmed).length, 0);
+        const warn = open ? "\n\nEs sind noch " + open + " Aufgabe(n) offen. Die zählen dann nicht mehr." : "";
+        if (!confirm("Abend wirklich beenden? Danach steht der Endstand fest." + warn)) return;
+        SS.endEvening();
+        SS.closeModal();
+        SS.toast("Abend beendet.", "ok");
+        go("end");
+      } }) : null,
     ]));
     return box;
   }
@@ -6408,7 +6821,7 @@ window.SS = (function () {
   /* ── Navigation ───────────────────────────────────────────────────────── */
   const VIEWS = {
     home: viewHome, lobby: viewLobby, tasks: viewTasks, sidequests: viewSidequests,
-    chat: viewChat, review: viewReview, album: viewAlbum,
+    chat: viewChat, review: viewReview, album: viewAlbum, end: viewEnd,
   };
   function go(route) {
     SS.state.route = route;
@@ -6420,8 +6833,28 @@ window.SS = (function () {
     const root = $("#app");
     const route = SS.state.route || "home";
     const view = VIEWS[route] || viewHome;
+
+    // Fokus und Eingaben retten. Ohne das wischt jeder Netz-Zwischenfall
+    // einem den halb getippten Chatbeitrag weg — das fühlt sich kaputt an.
+    const active = document.activeElement;
+    const keep = active && root.contains(active) && active.id
+      ? { id: active.id, value: active.value, start: active.selectionStart, end: active.selectionEnd }
+      : null;
+    const scroll = window.scrollY;
+
     root.innerHTML = "";
     root.appendChild(view());
+
+    if (keep) {
+      const back = $("#" + keep.id);
+      if (back && "value" in back) {
+        back.value = keep.value;
+        try { back.setSelectionRange(keep.start, keep.end); } catch (e) {}
+        back.focus();
+      }
+    }
+    // Nicht zurückspringen, wenn der Nutzer gerade irgendwo steht.
+    if (scroll > 0) window.scrollTo(0, scroll);
     updateOutbox();
   }
 
@@ -6449,8 +6882,22 @@ window.SS = (function () {
     SS.setRenderCurrent(render);
     SS.on("net", render);
     SS.on("joined", render);
-    SS.on("chat", () => { if (SS.state.route === "chat") render(); });
+    SS.on("chat", () => {
+      if (SS.state.route !== "chat") return;
+      const log = $("#chatLog");
+      if (!log) { render(); return; }
+      // Nur die Liste nachziehen — sonst verliert man das halb getippte Wort.
+      const lines = SS.store ? SS.store.chat() : [];
+      log.innerHTML = "";
+      if (!lines.length) log.appendChild(el("p", { class: "muted small", text: "Noch nichts geschrieben." }));
+      else lines.forEach((l) => log.appendChild(chatLine(l)));
+      log.scrollTop = log.scrollHeight;
+    });
     SS.on("outbox", updateOutbox);
+    // Das Protokoll speist die Übersicht "Was gerade läuft". Ohne diese
+    // Verbindung blieb sie stehen, bis zufällig etwas anderes neu zeichnete.
+    SS.on("log", scheduleRender);
+    SS.on("chronicle", scheduleRender);
     SS.on("tamper", (key) => {
       SS.logLine("Ein gespeicherter Stand war nicht mehr gültig und wurde verworfen (" + key + ").", "err");
     });
@@ -6459,7 +6906,17 @@ window.SS = (function () {
       if (t) go("home");
     });
     window.addEventListener("hashchange", checkJoinLink);
+    // Am Handy ist die Adresszeile mal da, mal weg — dabei verschiebt sich
+    // das Layout. Einmal nachziehen, damit nichts halb abgeschnitten bleibt.
+    window.addEventListener("resize", scheduleRender);
     render();
+  }
+
+  /** Mehrere Ereignisse kurz hintereinander sollen nur einmal zeichnen. */
+  let renderTimer = null;
+  function scheduleRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => { renderTimer = null; render(); }, 60);
   }
 
   SS.ui = { go, render, initUI, openCreate, openJoin, openReport, openWirtPanel, copyText, checkJoinLink };
@@ -6481,7 +6938,7 @@ window.SS = (function () {
   const SS = window.SS;
 
   const SESSION_KEYS = ["players", "assignments", "sidequests", "proposals", "ring",
-    "settings", "groupName", "seed", "reviews"];
+    "settings", "groupName", "seed", "reviews", "endedAt"];
 
   function restore() {
     if (!SS.store) return false;
@@ -6509,7 +6966,7 @@ window.SS = (function () {
         SS.state.mode = "local"; SS.state.role = "solo";
       }
       SS.state.pending = SS.store.outboxCount() > 0;
-      SS.state.route = sess.phase === "review" ? "review" : sess.phase === "over" ? "album" : "tasks";
+      SS.state.route = sess.phase === "review" ? "review" : sess.phase === "over" ? "end" : "tasks";
       SS.logLine("Letzter Abend wiederhergestellt (" + new Date(sess.at || Date.now()).toLocaleString("de-DE") + ").", "ok");
       return true;
     }
@@ -6568,15 +7025,15 @@ window.SS = (function () {
           return;
         }
         SS.net.flushOutbox();
-        SS.ui.go(SS.state.phase === "review" ? "review" : SS.state.phase === "over" ? "album" : SS.state.phase === "running" ? "tasks" : "lobby");
+        SS.ui.go(SS.state.phase === "review" ? "review" : SS.state.phase === "over" ? "end" : SS.state.phase === "running" ? "tasks" : "lobby");
       });
     } else if (SS.state.mode === "online" && SS.state.role === "host" && SS.state.code) {
       // Wirt: Runde mit demselben Code wieder aufmachen.
       SS.net.reopen();
-      SS.ui.go(SS.state.phase === "review" ? "review" : SS.state.phase === "over" ? "album" : SS.state.phase === "running" ? "tasks" : "lobby");
+      SS.ui.go(SS.state.phase === "review" ? "review" : SS.state.phase === "over" ? "end" : SS.state.phase === "running" ? "tasks" : "lobby");
     } else if (SS.state.route === "home" && SS.state.mode === "local" && SS.store.loadGroup()) {
       SS.ui.go(SS.state.phase === "running" || SS.state.phase === "review" || SS.state.phase === "over"
-        ? (SS.state.phase === "over" ? "album" : SS.state.phase === "review" ? "review" : "tasks") : "lobby");
+        ? (SS.state.phase === "over" ? "end" : SS.state.phase === "review" ? "review" : "tasks") : "lobby");
     }
   }
 

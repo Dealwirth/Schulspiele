@@ -12,7 +12,7 @@
   const SS = window.SS;
 
   const SESSION_KEYS = ["players", "assignments", "sidequests", "proposals", "ring",
-    "settings", "groupName", "seed", "reviews"];
+    "settings", "groupName", "seed", "reviews", "endedAt"];
 
   function restore() {
     if (!SS.store) return false;
@@ -40,7 +40,7 @@
         SS.state.mode = "local"; SS.state.role = "solo";
       }
       SS.state.pending = SS.store.outboxCount() > 0;
-      SS.state.route = sess.phase === "review" ? "review" : sess.phase === "over" ? "album" : "tasks";
+      SS.state.route = sess.phase === "review" ? "review" : sess.phase === "over" ? "end" : "tasks";
       SS.logLine("Letzter Abend wiederhergestellt (" + new Date(sess.at || Date.now()).toLocaleString("de-DE") + ").", "ok");
       return true;
     }
@@ -99,15 +99,15 @@
           return;
         }
         SS.net.flushOutbox();
-        SS.ui.go(SS.state.phase === "review" ? "review" : SS.state.phase === "over" ? "album" : SS.state.phase === "running" ? "tasks" : "lobby");
+        SS.ui.go(SS.state.phase === "review" ? "review" : SS.state.phase === "over" ? "end" : SS.state.phase === "running" ? "tasks" : "lobby");
       });
     } else if (SS.state.mode === "online" && SS.state.role === "host" && SS.state.code) {
       // Wirt: Runde mit demselben Code wieder aufmachen.
       SS.net.reopen();
-      SS.ui.go(SS.state.phase === "review" ? "review" : SS.state.phase === "over" ? "album" : SS.state.phase === "running" ? "tasks" : "lobby");
+      SS.ui.go(SS.state.phase === "review" ? "review" : SS.state.phase === "over" ? "end" : SS.state.phase === "running" ? "tasks" : "lobby");
     } else if (SS.state.route === "home" && SS.state.mode === "local" && SS.store.loadGroup()) {
       SS.ui.go(SS.state.phase === "running" || SS.state.phase === "review" || SS.state.phase === "over"
-        ? (SS.state.phase === "over" ? "album" : SS.state.phase === "review" ? "review" : "tasks") : "lobby");
+        ? (SS.state.phase === "over" ? "end" : SS.state.phase === "review" ? "review" : "tasks") : "lobby");
     }
   }
 
